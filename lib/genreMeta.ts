@@ -1,0 +1,15 @@
+export const GENRE_META: Record<string, { emoji: string; bg: string; border: string }> = {
+  '和食':      { emoji: '🍱', bg: '#fff7ed', border: '#fb923c' },
+  '洋食':      { emoji: '🍽️', bg: '#eff6ff', border: '#60a5fa' },
+  'イタリアン': { emoji: '🍝', bg: '#f0fdf4', border: '#4ade80' },
+  'フレンチ':   { emoji: '🥐', bg: '#faf5ff', border: '#c084fc' },
+  '中華':      { emoji: '🥟', bg: '#fffbeb', border: '#fbbf24' },
+  '韓国料理':   { emoji: '🍖', bg: '#fdf2f8', border: '#f472b6' },
+  'アジア料理': { emoji: '🍛', bg: '#f0fdfa', border: '#2dd4bf' },
+  'カフェ':    { emoji: '☕', bg: '#fefce8', border: '#a78bfa' },
+  'ラーメン':   { emoji: '🍜', bg: '#fff7ed', border: '#f97316' },
+  '寿司':      { emoji: '🍣', bg: '#ecfeff', border: '#22d3ee' },
+  '焼肉':      { emoji: '🥩', bg: '#fef2f2', border: '#ef4444' },
+  'スイーツ':   { emoji: '🍰', bg: '#fdf4ff', border: '#e879f9' },
+  'その他':    { emoji: '🍴', bg: '#f9fafb', border: '#9ca3af' },
+}

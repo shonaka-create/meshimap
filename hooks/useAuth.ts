@@ -1,0 +1,87 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import type { User } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
+
+async function ensureProfile(user: User) {
+  const { data } = await supabase.from('profiles').select('id').eq('id', user.id).single()
+  if (!data) {
+    await supabase.from('profiles').insert({
+      id: user.id,
+      display_name:
+        user.user_metadata?.full_name ??
+        user.user_metadata?.name ??
+        user.email?.split('@')[0] ??
+        '名無し',
+      photo_url: user.user_metadata?.avatar_url ?? null,
+    })
+  }
+}
+
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // onAuthStateChange が INITIAL_SESSION イベントで初期セッションを通知するので
+    // getSession() と二重呼び出しせず、こちらだけで管理する
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const u = session?.user ?? null
+      setUser(u)
+      if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
+        await ensureProfile(u)
+      }
+      if (event === 'INITIAL_SESSION') {
+        setLoading(false)
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const signUp = async (email: string, password: string, displayName: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: displayName } },
+    })
+    if (error) throw error
+    if (data.user) {
+      await supabase.from('profiles').upsert(
+        { id: data.user.id, display_name: displayName },
+        { onConflict: 'id', ignoreDuplicates: true }
+      )
+    }
+    return data.user!
+  }
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+    if (data.user) {
+      const { data: profile } = await supabase.from('profiles').select('id').eq('id', data.user.id).single()
+      if (!profile) {
+        await supabase.from('profiles').insert({
+          id: data.user.id,
+          display_name: data.user.user_metadata?.full_name ?? data.user.email?.split('@')[0] ?? '名無し',
+          photo_url: data.user.user_metadata?.avatar_url ?? null,
+        })
+      }
+    }
+    return data
+  }
+
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) throw error
+  }
+
+  const logOut = async () => {
+    await supabase.auth.signOut()
+  }
+
+  return { user, loading, signUp, signIn, signInWithGoogle, logOut }
+}
