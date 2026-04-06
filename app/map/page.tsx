@@ -154,6 +154,8 @@ export default function MapPage() {
             <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
           </div>
         )}
+      </main>
+      <BottomNav />
     </div>
   )
 }
