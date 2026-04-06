@@ -19,10 +19,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
 
   useEffect(() => {
-    // unload リスナーを追加するだけでブラウザが bfcache の対象外にする
-    const noop = () => {}
-    window.addEventListener('unload', noop)
-    return () => window.removeEventListener('unload', noop)
+    // bfcache から復元されたら強制リロード
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) window.location.reload()
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
   }, [])
 
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
