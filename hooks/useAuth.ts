@@ -24,13 +24,23 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // 初期セッションを明示的に取得して loading を解除する
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      const u = session?.user ?? null
-      setUser(u)
-      if (u) await ensureProfile(u)
-      setLoading(false)
-    })
+    // 5秒以内に解決しない場合の安全タイムアウト
+    const timeout = setTimeout(() => setLoading(false), 5000)
+
+    // 初期セッションを明示的に取得
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        const u = session?.user ?? null
+        setUser(u)
+        setLoading(false) // ensureProfile より先に解除
+        if (u) await ensureProfile(u)
+      })
+      .catch(() => {
+        setLoading(false)
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+      })
 
     // その後のサインイン・サインアウトを監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -41,7 +51,10 @@ export function useAuth() {
         await ensureProfile(u)
       }
     })
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [])
 
   const signUp = async (email: string, password: string, displayName: string) => {
