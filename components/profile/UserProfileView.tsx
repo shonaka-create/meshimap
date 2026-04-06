@@ -94,8 +94,8 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
   if (!profile) return <div className="flex items-center justify-center h-screen text-gray-500">ユーザーが見つかりません</div>
 
   return (
-    <div>
-      <div className="bg-gradient-to-br from-orange-400 to-rose-500 pt-14 pb-6 px-4">
+    <div className="flex flex-col h-screen">
+      <div className="bg-gradient-to-br from-orange-400 to-rose-500 pt-14 pb-6 px-4 flex-shrink-0">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -145,7 +145,7 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
         )}
       </div>
 
-      <div className="flex border-b border-gray-200 bg-white sticky top-14 z-10">
+      <div className="flex border-b border-gray-200 bg-white flex-shrink-0">
         {[{ id: 'grid', label: 'グリッド', icon: Grid }, { id: 'map', label: '地図', icon: MapPin }].map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setView(id as 'grid' | 'map')}
             className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm font-medium ${view === id ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}>
@@ -154,24 +154,26 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
         ))}
       </div>
 
-      {view === 'grid' && (
-        posts.length === 0
-          ? <div className="flex flex-col items-center justify-center py-16 text-center"><span className="text-5xl mb-3">📷</span><p className="text-gray-500 text-sm">{isOwnProfile ? '最初の投稿をしてみよう！' : 'まだ投稿がありません'}</p></div>
-          : <div className="grid grid-cols-3 gap-0.5">
-            {posts.map((post) => (
-              <div key={post.id} className="relative aspect-square bg-gray-100 group cursor-pointer">
-                {post.imageURLs[0] && <img src={post.imageURLs[0]} alt="" className="w-full h-full object-cover" />}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-                    <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                    <span className="text-white text-sm font-bold">{post.rating}.0</span>
+      <div className="flex-1 overflow-y-auto pb-24">
+        {view === 'grid' && (
+          posts.length === 0
+            ? <div className="flex flex-col items-center justify-center py-16 text-center"><span className="text-5xl mb-3">📷</span><p className="text-gray-500 text-sm">{isOwnProfile ? '最初の投稿をしてみよう！' : 'まだ投稿がありません'}</p></div>
+            : <div className="grid grid-cols-3 gap-0.5">
+              {posts.map((post) => (
+                <div key={post.id} className="relative aspect-square bg-gray-100 group cursor-pointer">
+                  {post.imageURLs[0] && <img src={post.imageURLs[0]} alt="" className="w-full h-full object-cover" />}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                      <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                      <span className="text-white text-sm font-bold">{post.rating}.0</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-      )}
-      {view === 'map' && <div style={{ height: 'calc(100vh - 320px)' }}><MapView posts={posts} /></div>}
+              ))}
+            </div>
+        )}
+        {view === 'map' && <div className="h-full"><MapView posts={posts} /></div>}
+      </div>
 
       {showEditModal && profile && (
         <EditProfileModal
