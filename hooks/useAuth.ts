@@ -24,16 +24,21 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // onAuthStateChange が INITIAL_SESSION イベントで初期セッションを通知するので
-    // getSession() と二重呼び出しせず、こちらだけで管理する
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // 初期セッションを明示的に取得して loading を解除する
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       const u = session?.user ?? null
       setUser(u)
-      if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
+      if (u) await ensureProfile(u)
+      setLoading(false)
+    })
+
+    // その後のサインイン・サインアウトを監視
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') return // getSession() で処理済み
+      const u = session?.user ?? null
+      setUser(u)
+      if (u && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
         await ensureProfile(u)
-      }
-      if (event === 'INITIAL_SESSION') {
-        setLoading(false)
       }
     })
     return () => subscription.unsubscribe()
