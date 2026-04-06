@@ -3,17 +3,20 @@
 export const dynamic = 'force-dynamic'
 
 import { useAuthContext } from '@/components/auth/AuthProvider'
-import { redirect } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import UserProfileView from '@/components/profile/UserProfileView'
 import BottomNav from '@/components/layout/BottomNav'
 
 export default function ProfilePage() {
   const { user, loading } = useAuthContext()
+  const router = useRouter()
 
-  if (!loading && !user) redirect('/')
+  useEffect(() => {
+    if (!loading && !user) router.push('/')
+  }, [loading, user, router])
 
-  if (loading) {
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-rose-50">
         <div className="text-center">
@@ -26,7 +29,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {user && <UserProfileView uid={user.id} isOwnProfile />}
+      <UserProfileView uid={user.id} isOwnProfile />
       <BottomNav />
     </div>
   )
