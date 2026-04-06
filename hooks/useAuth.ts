@@ -19,15 +19,47 @@ async function ensureProfile(user: User) {
   }
 }
 
+/**
+ * Supabase が localStorage に保存したセッションを同期的に読み取り、
+ * まだ有効なユーザーを返す。期限切れ・存在しない場合は null。
+ * useEffect 冒頭で呼ぶことでスピナーなしに即座にアプリを表示できる。
+ */
+function getCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem('supabase.auth.token')
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Supabase v2 のストレージ構造に対応
+    const user: User | undefined = parsed?.user ?? parsed?.currentSession?.user
+    const expiresAt: number | undefined =
+      parsed?.expires_at ?? parsed?.currentSession?.expires_at
+    if (!user) return null
+    // 期限切れなら getSession() の自動リフレッシュに任せる
+    if (expiresAt && expiresAt < Date.now() / 1000) return null
+    return user
+  } catch {
+    return null
+  }
+}
+
 export function useAuth() {
+  // SSR と一致させるため初期値は null / true で固定
+  // （ハイドレーションエラーを防ぐ）
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true
 
-    // 1. getSession() を初期セッションの唯一の情報源とする
-    //    （期限切れトークンは自動リフレッシュされてから返る）
+    // ① localStorage から即座に復元 → スピナーを表示せずアプリを見せる
+    const cached = getCachedUser()
+    if (cached) {
+      setUser(cached)
+      setLoading(false)
+    }
+
+    // ② getSession() でトークン検証・自動リフレッシュ
+    //    キャッシュが有効なら loading はすでに false なので UX に影響しない
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         if (!mounted) return
@@ -40,23 +72,18 @@ export function useAuth() {
         setLoading(false)
       })
 
-    // 2. ログイン・ログアウト・トークンリフレッシュを監視
-    //    INITIAL_SESSION は getSession() が担うのでスキップ
+    // ③ ログイン・ログアウト・トークンリフレッシュを監視
+    //    INITIAL_SESSION は ② が担うのでスキップ
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
       if (event === 'INITIAL_SESSION') return
 
       const u = session?.user ?? null
+      setUser(u)
+      setLoading(false)
 
-      if (event === 'SIGNED_OUT') {
-        setUser(null)
-      } else if (u) {
-        setUser(prev => (prev?.id === u.id ? prev : u))
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          await ensureProfile(u)
-        }
-      } else {
-        setUser(null)
+      if (u && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+        await ensureProfile(u)
       }
     })
 
