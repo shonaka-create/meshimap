@@ -21,29 +21,34 @@ export default function HomePage() {
     if (!user) return
     const fetchPosts = async () => {
       setPostsLoading(true)
-      // フォロー中のユーザーIDを取得
-      const { data: follows } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id)
+      try {
+        // フォロー中のユーザーIDを取得
+        const { data: follows } = await supabase
+          .from('follows')
+          .select('following_id')
+          .eq('follower_id', user.id)
 
-      const ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
+        const ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
 
-      const { data } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          profiles!posts_user_id_fkey(display_name, photo_url),
-          post_images(url, position)
-        `)
-        .in('user_id', ids)
-        .order('created_at', { ascending: false })
-        .limit(30)
+        const { data } = await supabase
+          .from('posts')
+          .select(`
+            *,
+            profiles!posts_user_id_fkey(display_name, photo_url),
+            post_images(url, position)
+          `)
+          .in('user_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(30)
 
-      if (data) {
-        setPosts(data.map(toPost))
+        if (data) {
+          setPosts(data.map(toPost))
+        }
+      } catch (e) {
+        console.error('投稿の取得に失敗しました', e)
+      } finally {
+        setPostsLoading(false)
       }
-      setPostsLoading(false)
     }
     fetchPosts()
   }, [user])
