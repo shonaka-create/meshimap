@@ -71,10 +71,10 @@ export default function MapPage() {
     .filter((p) => !userSearch.trim() || p.userDisplayName.includes(userSearch.trim()))
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50">
       <TopBar title="地図" />
-      <main className="pt-14 pb-24">
-        <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2">
+      <main className="flex-1 overflow-hidden flex flex-col pt-14 pb-16">
+        <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2 shrink-0">
 
           {/* モード切替 + おすすめボタン */}
           <div className="flex items-center gap-2">
@@ -131,11 +131,11 @@ export default function MapPage() {
           </div>
         </div>
 
-        <div style={{ height: 'calc(100vh - 230px)' }}>
+        <div className="flex-1 min-h-0">
           <MapView posts={filtered} flyTo={flyTo} />
         </div>
 
-        <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2">
+        <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2 shrink-0">
           {userSearch && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{userSearch}</span>}
           {selectedGenre !== 'すべて' && <span className="text-base">{GENRE_META[selectedGenre]?.emoji}</span>}
           <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
