@@ -45,9 +45,9 @@ export function useAuth() {
       if (u !== null) {
         // セッションがある場合: ユーザーIDが変わった場合のみ更新
         setUser(prev => (prev?.id === u.id ? prev : u))
-      } else if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
-        // 明示的なサインアウト or 初回セッション確認で未ログインの場合のみ null にする
-        // タブ切り替え時の一時的なセッション消失（TOKEN_REFRESHED前の空イベント等）では null にしない
+      } else if (event === 'SIGNED_OUT') {
+        // 明示的なサインアウト時のみ null にする
+        // INITIAL_SESSION で null が来るのは bfcache 復元時の再発火も含むため除外
         setUser(null)
       }
       if (!resolved) {
