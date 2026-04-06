@@ -28,7 +28,8 @@ export function useAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const u = session?.user ?? null
-      setUser(u)
+      // ユーザーIDが変わった場合のみ更新（TOKEN_REFRESHED等で同一ユーザーの再レンダーを防ぐ）
+      setUser(prev => (prev?.id === u?.id ? prev : u))
       if (!resolved) {
         resolved = true
         setLoading(false) // INITIAL_SESSION が来たらローディング終了
