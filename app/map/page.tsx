@@ -71,7 +71,7 @@ export default function MapPage() {
     .filter((p) => !userSearch.trim() || p.userDisplayName.includes(userSearch.trim()))
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-[100dvh] flex flex-col bg-gray-50">
       <TopBar title="地図" />
       <main className="flex-1 overflow-hidden flex flex-col pt-14 pb-16">
         <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2 shrink-0">
