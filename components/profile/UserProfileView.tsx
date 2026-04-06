@@ -30,10 +30,25 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
       setLoading(true)
       try {
         const [{ data: p }, { data: raw }] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', uid).single(),
+          supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
           supabase.from('posts').select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)').eq('user_id', uid).order('created_at', { ascending: false }),
         ])
-        if (p) setProfile(p)
+        let resolvedProfile = p
+        // プロフィールが存在しない場合、自分のプロフィールなら自動作成する
+        if (!resolvedProfile && isOwnProfile && user) {
+          const displayName = user.user_metadata?.display_name ?? user.email?.split('@')[0] ?? 'ユーザー'
+          const { data: created } = await supabase.from('profiles').upsert({
+            id: uid,
+            display_name: displayName,
+            bio: '',
+            photo_url: user.user_metadata?.avatar_url ?? null,
+            followers_count: 0,
+            following_count: 0,
+            posts_count: 0,
+          }, { onConflict: 'id' }).select().single()
+          resolvedProfile = created
+        }
+        if (resolvedProfile) setProfile(resolvedProfile)
         if (raw) setPosts(raw.map(toPost))
         if (user && !isOwnProfile) {
           const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
