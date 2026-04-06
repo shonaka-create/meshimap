@@ -17,6 +17,13 @@ export default function HomePage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [postsLoading, setPostsLoading] = useState(true)
 
+  // フェッチがハングしても5秒で強制解除
+  useEffect(() => {
+    if (!postsLoading) return
+    const t = setTimeout(() => setPostsLoading(false), 5000)
+    return () => clearTimeout(t)
+  }, [postsLoading])
+
   useEffect(() => {
     if (!user) return
     const fetchPosts = async () => {
