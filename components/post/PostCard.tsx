@@ -25,7 +25,7 @@ export default function PostCard({ post }: PostCardProps) {
 
   useEffect(() => {
     if (!user) return
-    supabase.from('likes').select('user_id').eq('post_id', post.id).eq('user_id', user.id).single()
+    supabase.from('likes').select('user_id').eq('post_id', post.id).eq('user_id', user.id).maybeSingle()
       .then(({ data }) => setLiked(!!data))
   }, [user, post.id])
 
