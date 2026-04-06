@@ -26,22 +26,27 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
   const [showEditModal, setShowEditModal] = useState(false)
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchData = async () => {
       setLoading(true)
-      const [{ data: p }, { data: raw }] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', uid).single(),
-        supabase.from('posts').select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)').eq('user_id', uid).order('created_at', { ascending: false }),
-      ])
-      if (p) setProfile(p)
-      if (raw) setPosts(raw.map(toPost))
-      if (user && !isOwnProfile) {
-        const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
-        setIsFollowing(!!f)
+      try {
+        const [{ data: p }, { data: raw }] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', uid).single(),
+          supabase.from('posts').select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)').eq('user_id', uid).order('created_at', { ascending: false }),
+        ])
+        if (p) setProfile(p)
+        if (raw) setPosts(raw.map(toPost))
+        if (user && !isOwnProfile) {
+          const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
+          setIsFollowing(!!f)
+        }
+      } catch (e) {
+        console.error('プロフィールデータの取得に失敗しました', e)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
-    fetch()
-  }, [uid, user, isOwnProfile])
+    fetchData()
+  }, [uid, user?.id, isOwnProfile])
 
   const toggleFollow = async () => {
     if (!user || !profile) return

@@ -13,6 +13,17 @@ export default function ProfilePage() {
 
   if (!loading && !user) redirect('/')
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-rose-50">
+        <div className="text-center">
+          <span className="text-5xl">🍜</span>
+          <p className="text-gray-500 mt-3 text-sm">読み込み中...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {user && <UserProfileView uid={user.id} isOwnProfile />}

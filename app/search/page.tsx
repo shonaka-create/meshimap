@@ -57,13 +57,18 @@ function SearchContent() {
   useEffect(() => {
     const fetchDiscover = async () => {
       setDiscoverLoading(true)
-      const { data } = await supabase
-        .from('posts')
-        .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
-        .order('created_at', { ascending: false })
-        .limit(60)
-      if (data) setDiscoverPosts(data.map(toPost))
-      setDiscoverLoading(false)
+      try {
+        const { data } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
+          .order('created_at', { ascending: false })
+          .limit(60)
+        if (data) setDiscoverPosts(data.map(toPost))
+      } catch (e) {
+        console.error('おすすめ投稿の取得に失敗しました', e)
+      } finally {
+        setDiscoverLoading(false)
+      }
     }
     fetchDiscover()
   }, [])

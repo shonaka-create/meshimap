@@ -24,7 +24,6 @@ export default function MapPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [selectedGenre, setSelectedGenre] = useState('すべて')
   const [userSearch, setUserSearch] = useState('')
-  const [showUserSearch, setShowUserSearch] = useState(false)
   const [showRecommend, setShowRecommend] = useState(false)
   const [likedPostIds, setLikedPostIds] = useState<string[]>([])
   const [flyTo, setFlyTo] = useState<{ pos: [number, number]; key: number } | undefined>()
@@ -39,28 +38,33 @@ export default function MapPage() {
       .then(({ data }) => {
         if (data) setLikedPostIds(data.map((r) => r.post_id as string))
       })
-  }, [user])
+      .catch((e) => console.error('いいね情報の取得に失敗しました', e))
+  }, [user?.id])
 
   useEffect(() => {
     if (!user) return
     const fetchPosts = async () => {
-      let ids: string[]
-      if (viewMode === 'mine') {
-        ids = [user.id]
-      } else {
-        const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
-        ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
+      try {
+        let ids: string[]
+        if (viewMode === 'mine') {
+          ids = [user.id]
+        } else {
+          const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
+          ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
+        }
+        const { data } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
+          .in('user_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(200)
+        if (data) setPosts(data.map(toPost))
+      } catch (e) {
+        console.error('地図データの取得に失敗しました', e)
       }
-      const { data } = await supabase
-        .from('posts')
-        .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
-        .in('user_id', ids)
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (data) setPosts(data.map(toPost))
     }
     fetchPosts()
-  }, [user, viewMode])
+  }, [user?.id, viewMode])
 
   const filtered = posts
     .filter((p) => selectedGenre === 'すべて' || p.genre === selectedGenre)
@@ -72,7 +76,7 @@ export default function MapPage() {
       <main className="pt-14 pb-24">
         <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2">
 
-          {/* モード切替 + ユーザー検索ボタン + おすすめボタン */}
+          {/* モード切替 + おすすめボタン */}
           <div className="flex items-center gap-2">
             <div className="flex rounded-xl bg-gray-100 p-1 flex-1">
               {(['all', 'mine'] as ViewMode[]).map((m) => (
@@ -88,32 +92,24 @@ export default function MapPage() {
               <Sparkles className="w-3.5 h-3.5" />
               おすすめ
             </button>
-            <button
-              onClick={() => { setShowUserSearch(!showUserSearch); setUserSearch('') }}
-              className={`p-2 rounded-xl border transition-all ${showUserSearch ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-              <Search className="w-4 h-4" />
-            </button>
           </div>
 
-          {/* ユーザー検索入力 */}
-          {showUserSearch && (
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="ユーザー名で絞り込む"
-                autoFocus
-                className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-              />
-              {userSearch && (
-                <button onClick={() => setUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <X className="w-4 h-4 text-gray-400" />
-                </button>
-              )}
-            </div>
-          )}
+          {/* ユーザー検索入力（常時表示） */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="ユーザー名で絞り込む"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 transition-all"
+            />
+            {userSearch && (
+              <button onClick={() => setUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            )}
+          </div>
 
           {/* ジャンルフィルター */}
           <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>

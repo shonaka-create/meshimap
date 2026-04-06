@@ -28,11 +28,17 @@ export function useAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const u = session?.user ?? null
-      // ユーザーIDが変わった場合のみ更新（TOKEN_REFRESHED等で同一ユーザーの再レンダーを防ぐ）
-      setUser(prev => (prev?.id === u?.id ? prev : u))
+      if (u !== null) {
+        // セッションがある場合: ユーザーIDが変わった場合のみ更新
+        setUser(prev => (prev?.id === u.id ? prev : u))
+      } else if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+        // 明示的なサインアウト or 初回セッション確認で未ログインの場合のみ null にする
+        // タブ切り替え時の一時的なセッション消失（TOKEN_REFRESHED前の空イベント等）では null にしない
+        setUser(null)
+      }
       if (!resolved) {
         resolved = true
-        setLoading(false) // INITIAL_SESSION が来たらローディング終了
+        setLoading(false)
       }
       if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
         await ensureProfile(u)
