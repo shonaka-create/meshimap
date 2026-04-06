@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import type { User } from '@supabase/supabase-js'
 
@@ -17,16 +17,6 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
-
-  useEffect(() => {
-    // bfcache から復元されたら強制リロード
-    const handlePageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) window.location.reload()
-    }
-    window.addEventListener('pageshow', handlePageShow)
-    return () => window.removeEventListener('pageshow', handlePageShow)
-  }, [])
-
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
 }
 

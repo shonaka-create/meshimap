@@ -23,6 +23,18 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true) // INITIAL_SESSION を待つ
 
+  // bfcache から復元されたとき、フルリロードせずセッションを再取得して状態を復元
+  useEffect(() => {
+    const handlePageShow = async (e: PageTransitionEvent) => {
+      if (!e.persisted) return
+      const { data: { session } } = await supabase.auth.getSession()
+      setUser(session?.user ?? null)
+      setLoading(false)
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
+
   useEffect(() => {
     let resolved = false
 
