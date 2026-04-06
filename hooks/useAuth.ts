@@ -21,18 +21,35 @@ async function ensureProfile(user: User) {
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(false) // 最初からfalse、セッションは裏で確認
+  const [loading, setLoading] = useState(true) // INITIAL_SESSION を待つ
 
   useEffect(() => {
-    // onAuthStateChange の INITIAL_SESSION でセッションを取得
+    let resolved = false
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const u = session?.user ?? null
       setUser(u)
+      if (!resolved) {
+        resolved = true
+        setLoading(false) // INITIAL_SESSION が来たらローディング終了
+      }
       if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
         await ensureProfile(u)
       }
     })
-    return () => subscription.unsubscribe()
+
+    // 安全策: 3秒以内に認証イベントが来なければ強制終了
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        setLoading(false)
+      }
+    }, 3000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [])
 
   const signUp = async (email: string, password: string, displayName: string) => {

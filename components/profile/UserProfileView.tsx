@@ -35,7 +35,7 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
       if (p) setProfile(p)
       if (raw) setPosts(raw.map(toPost))
       if (user && !isOwnProfile) {
-        const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).single()
+        const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
         setIsFollowing(!!f)
       }
       setLoading(false)
