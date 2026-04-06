@@ -26,7 +26,7 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
 
-    // 1. 初期セッション取得
+    // 1. localStorage から即座にセッション取得（ネットワーク不要）
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return
       setUser(session?.user ?? null)
@@ -34,26 +34,12 @@ export function useAuth() {
       if (session?.user) ensureProfile(session.user)
     })
 
-    // 2. タブに戻ったときにセッションを再確認
-    // nullが返ってもユーザーをクリアしない（SIGNED_OUTイベントだけがログアウトさせる）
-    const handleVisibility = async () => {
-      if (!mounted || document.visibilityState !== 'visible') return
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!mounted) return
-      if (session?.user) {
-        setUser(prev => (prev?.id === session.user!.id ? prev : session.user!))
-        setLoading(false)
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-
-    // 3. ログイン・ログアウト・トークンリフレッシュを監視
+    // 2. ログイン・ログアウト・トークンリフレッシュを監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
       const u = session?.user ?? null
 
       if (event === 'SIGNED_OUT') {
-        // 明示的なログアウトのみユーザーをクリア
         setUser(null)
         setLoading(false)
       } else if (u) {
@@ -63,12 +49,10 @@ export function useAuth() {
           await ensureProfile(u)
         }
       }
-      // INITIAL_SESSION/TOKEN_REFRESHED で null が来ても無視
     })
 
     return () => {
-      mounted = false
-      document.removeEventListener('visibilitychange', handleVisibility)
+      mounted = false  // 非同期コールバックがアンマウント後に state を変更しないよう
       subscription.unsubscribe()
     }
   }, [])
