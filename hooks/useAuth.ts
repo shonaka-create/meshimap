@@ -21,40 +21,18 @@ async function ensureProfile(user: User) {
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false) // 最初からfalse、セッションは裏で確認
 
   useEffect(() => {
-    // 5秒以内に解決しない場合の安全タイムアウト
-    const timeout = setTimeout(() => setLoading(false), 5000)
-
-    // 初期セッションを明示的に取得
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        const u = session?.user ?? null
-        setUser(u)
-        setLoading(false) // ensureProfile より先に解除
-        if (u) await ensureProfile(u)
-      })
-      .catch(() => {
-        setLoading(false)
-      })
-      .finally(() => {
-        clearTimeout(timeout)
-      })
-
-    // その後のサインイン・サインアウトを監視
+    // onAuthStateChange の INITIAL_SESSION でセッションを取得
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'INITIAL_SESSION') return // getSession() で処理済み
       const u = session?.user ?? null
       setUser(u)
-      if (u && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+      if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
         await ensureProfile(u)
       }
     })
-    return () => {
-      subscription.unsubscribe()
-      clearTimeout(timeout)
-    }
+    return () => subscription.unsubscribe()
   }, [])
 
   const signUp = async (email: string, password: string, displayName: string) => {
