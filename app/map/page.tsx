@@ -123,38 +123,37 @@ export default function MapPage() {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 relative">
+        <div className={`relative transition-all duration-300 ${showRecommend ? 'h-[35%]' : 'flex-1'} min-h-0 shrink-0`}>
           <MapView posts={filtered} flyTo={flyTo} />
-          {/* フローティングおすすめボタン */}
-          <button
-            onClick={() => setShowRecommend(true)}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-orange-400 to-rose-500 text-white font-bold text-sm shadow-xl shadow-orange-300/50 active:scale-95 transition-transform whitespace-nowrap"
-          >
-            <Sparkles className="w-4 h-4" />
-            おすすめを見る
-          </button>
+          {!showRecommend && (
+            <button
+              onClick={() => setShowRecommend(true)}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-orange-400 to-rose-500 text-white font-bold text-sm shadow-xl shadow-orange-300/50 active:scale-95 transition-transform whitespace-nowrap"
+            >
+              <Sparkles className="w-4 h-4" />
+              おすすめを見る
+            </button>
+          )}
         </div>
 
-        <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2 shrink-0">
-          {userSearch && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{userSearch}</span>}
-          {selectedGenre !== 'すべて' && <span className="text-base">{GENRE_META[selectedGenre]?.emoji}</span>}
-          <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
-        </div>
-      </main>
-      <BottomNav />
-
-      {showRecommend && user && (
-        <RecommendSheet
-          posts={posts}
-          myUserId={user.id}
-          likedPostIds={likedPostIds}
-          onClose={() => setShowRecommend(false)}
-          onSelectSpot={(post) => {
-            setShowRecommend(false)
-            setFlyTo({ pos: [post.location.lat, post.location.lng], key: Date.now() })
-          }}
-        />
-      )}
+        {showRecommend && user ? (
+          <RecommendSheet
+            posts={posts}
+            myUserId={user.id}
+            likedPostIds={likedPostIds}
+            onClose={() => setShowRecommend(false)}
+            onSelectSpot={(post) => {
+              setShowRecommend(false)
+              setFlyTo({ pos: [post.location.lat, post.location.lng], key: Date.now() })
+            }}
+          />
+        ) : (
+          <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2 shrink-0">
+            {userSearch && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{userSearch}</span>}
+            {selectedGenre !== 'すべて' && <span className="text-base">{GENRE_META[selectedGenre]?.emoji}</span>}
+            <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
+          </div>
+        )}
     </div>
   )
 }

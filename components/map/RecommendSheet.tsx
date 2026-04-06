@@ -89,11 +89,8 @@ export default function RecommendSheet({
   }, [posts, myUserId, likedPostIds, unvisitedOnly])
 
   return (
-    <div className="fixed inset-0 z-50" onClick={onClose}>
-      <div
-        className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="flex-1 min-h-0 flex flex-col bg-white border-t border-gray-100">
+      <div className="flex flex-col flex-1 min-h-0">
         {/* ヘッダー */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100">
           <div className="flex items-center justify-between mb-1">
