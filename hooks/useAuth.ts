@@ -21,58 +21,40 @@ async function ensureProfile(user: User) {
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true) // INITIAL_SESSION を待つ
+  const [loading, setLoading] = useState(true)
 
-  // bfcache から復元されたとき、セッションがあれば状態を復元（なければ触らない）
   useEffect(() => {
-    const handlePageShow = async (e: PageTransitionEvent) => {
-      if (!e.persisted) return
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        // セッションが取得できた場合のみ更新。null は絶対にセットしない
-        setUser(prev => (prev?.id === session.user!.id ? prev : session.user!))
-      }
-      // session が null の場合はユーザー状態を変えない
-      // onAuthStateChange が TOKEN_REFRESHED か SIGNED_OUT で正しく処理する
+    let mounted = true
+
+    // 1. まず localStorage から即座にセッションを取得（ネットワーク不要・高速）
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
+      setUser(session?.user ?? null)
       setLoading(false)
-    }
-    window.addEventListener('pageshow', handlePageShow)
-    return () => window.removeEventListener('pageshow', handlePageShow)
-  }, [])
-
-  useEffect(() => {
-    let resolved = false
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const u = session?.user ?? null
-      if (u !== null) {
-        // セッションがある場合: ユーザーIDが変わった場合のみ更新
-        setUser(prev => (prev?.id === u.id ? prev : u))
-      } else if (event === 'SIGNED_OUT') {
-        // 明示的なサインアウト時のみ null にする
-        // INITIAL_SESSION で null が来るのは bfcache 復元時の再発火も含むため除外
-        setUser(null)
-      }
-      if (!resolved) {
-        resolved = true
-        setLoading(false)
-      }
-      if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
-        await ensureProfile(u)
-      }
+      if (session?.user) ensureProfile(session.user)
     })
 
-    // 安全策: 3秒以内に認証イベントが来なければ強制終了
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
+    // 2. その後の変化（ログイン・ログアウト・トークンリフレッシュ）を監視
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return
+      const u = session?.user ?? null
+
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
         setLoading(false)
+      } else if (u) {
+        setUser(prev => (prev?.id === u.id ? prev : u))
+        setLoading(false)
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          await ensureProfile(u)
+        }
       }
-    }, 3000)
+      // INITIAL_SESSION・TOKEN_REFRESHED で null が来ても無視（getSession が正しい値を持っている）
+    })
 
     return () => {
+      mounted = true
       subscription.unsubscribe()
-      clearTimeout(timeout)
     }
   }, [])
 
@@ -95,16 +77,6 @@ export function useAuth() {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    if (data.user) {
-      const { data: profile } = await supabase.from('profiles').select('id').eq('id', data.user.id).single()
-      if (!profile) {
-        await supabase.from('profiles').insert({
-          id: data.user.id,
-          display_name: data.user.user_metadata?.full_name ?? data.user.email?.split('@')[0] ?? '名無し',
-          photo_url: data.user.user_metadata?.avatar_url ?? null,
-        })
-      }
-    }
     return data
   }
 
