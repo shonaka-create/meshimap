@@ -35,6 +35,7 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
   const [locationName, setLocationName] = useState('')
   const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadStep, setUploadStep] = useState('')
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -48,39 +49,58 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
   const extractHashtags = (text: string) =>
     (text.match(/#[\w\u3040-\u9FFF]+/g) ?? []).map((t) => t.slice(1))
 
+  const withTimeout = <T,>(promise: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`タイムアウト (${ms / 1000}秒)`)), ms)),
+    ])
+  }
+
   const handleSubmit = useCallback(async () => {
-    if (!user || !locationCoords || images.length === 0) return
+    if (!user) { setError('ログインが必要です'); return }
+    if (!locationCoords) { setError('場所を地図で指定してください'); return }
+    if (images.length === 0) { setError('写真を選択してください'); return }
     setUploading(true)
     setError('')
+    setUploadStep('投稿を作成中...')
     try {
       // 1. 投稿レコードを作成
-      const { data: post, error: postError } = await supabase.from('posts').insert({
-        user_id: user.id,
-        caption,
-        rating,
-        genre,
-        price_range: priceRange,
-        location_name: locationName,
-        location_lat: locationCoords.lat,
-        location_lng: locationCoords.lng,
-        hashtags: extractHashtags(caption),
-      }).select().single()
+      const { data: post, error: postError } = await withTimeout(
+        supabase.from('posts').insert({
+          user_id: user.id,
+          caption,
+          rating,
+          genre,
+          price_range: priceRange,
+          location_name: locationName,
+          location_lat: locationCoords.lat,
+          location_lng: locationCoords.lng,
+          hashtags: extractHashtags(caption),
+        }).select().single(),
+        15000
+      )
 
-      if (postError || !post) throw postError
+      if (postError || !post) throw postError ?? new Error('投稿レコードの作成に失敗しました')
 
       // 2. 画像を Storage にアップロードして post_images に保存
       for (let i = 0; i < images.length; i++) {
+        setUploadStep(`画像をアップロード中... (${i + 1}/${images.length})`)
         const file = images[i]
         const path = `${user.id}/${post.id}/${i}_${Date.now()}`
-        const { data: uploaded, error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(path, file, { upsert: true })
+        const { data: uploaded, error: uploadError } = await withTimeout(
+          supabase.storage.from('post-images').upload(path, file, { upsert: true }),
+          30000
+        )
         if (uploadError) throw uploadError
         const { data: { publicUrl } } = supabase.storage.from('post-images').getPublicUrl(uploaded.path)
-        await supabase.from('post_images').insert({ post_id: post.id, url: publicUrl, position: i })
+        await withTimeout(
+          supabase.from('post_images').insert({ post_id: post.id, url: publicUrl, position: i }),
+          10000
+        )
       }
 
       // 3. プロフィールの投稿数を更新
+      setUploadStep('仕上げ中...')
       const { data: profile } = await supabase.from('profiles').select('posts_count').eq('id', user.id).single()
       await supabase.from('profiles').update({ posts_count: (profile?.posts_count ?? 0) + 1 }).eq('id', user.id)
 
@@ -93,10 +113,11 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
     } catch (err) {
       const raw = err as { message?: string; details?: string; hint?: string } | null
       const msg = raw?.message ?? raw?.details ?? JSON.stringify(err)
-      setError(msg || '投稿に失敗しました')
+      setError(msg || '投稿に失敗しました。もう一度お試しください。')
       console.error('投稿エラー詳細:', err)
     } finally {
       setUploading(false)
+      setUploadStep('')
     }
   }, [user, locationCoords, images, caption, rating, genre, priceRange, locationName, onSuccess, onClose])
 
@@ -234,7 +255,10 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
           {error && (
             <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
               <span className="text-red-500 text-sm shrink-0">⚠️</span>
-              <p className="text-red-600 text-xs leading-relaxed">{error}</p>
+              <div className="flex-1">
+                <p className="text-red-600 text-xs leading-relaxed">{error}</p>
+              </div>
+              <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 shrink-0 text-xs underline">閉じる</button>
             </div>
           )}
           {step === 'images' && (
@@ -252,8 +276,13 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
             <div className="flex gap-2">
               <button onClick={() => setStep('details')} className="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50">戻る</button>
               <button onClick={handleSubmit} disabled={!locationCoords || !locationName.trim() || uploading}
-                className="flex-1 py-3 bg-gradient-to-r from-orange-400 to-rose-500 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90">
-                {uploading ? '投稿中...' : '投稿する'}
+                className="flex-1 py-3 bg-gradient-to-r from-orange-400 to-rose-500 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 flex flex-col items-center justify-center gap-0.5 min-h-[48px]">
+                {uploading ? (
+                  <>
+                    <span className="text-sm">投稿中...</span>
+                    {uploadStep && <span className="text-[10px] opacity-80">{uploadStep}</span>}
+                  </>
+                ) : '投稿する'}
               </button>
             </div>
           )}

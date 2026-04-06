@@ -35,10 +35,10 @@ export default function MapPage() {
       .from('likes')
       .select('post_id')
       .eq('user_id', user.id)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { console.error('いいね情報の取得に失敗しました', error); return }
         if (data) setLikedPostIds(data.map((r) => r.post_id as string))
       })
-      .catch((e) => console.error('いいね情報の取得に失敗しました', e))
   }, [user?.id])
 
   useEffect(() => {
