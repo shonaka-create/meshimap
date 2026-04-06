@@ -26,33 +26,42 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
 
-    // 1. localStorage から即座にセッション取得（ネットワーク不要）
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return
-      setUser(session?.user ?? null)
-      setLoading(false)
-      if (session?.user) ensureProfile(session.user)
-    })
+    // 1. getSession() を初期セッションの唯一の情報源とする
+    //    （期限切れトークンは自動リフレッシュされてから返る）
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return
+        setUser(session?.user ?? null)
+        setLoading(false)
+        if (session?.user) ensureProfile(session.user)
+      })
+      .catch(() => {
+        if (!mounted) return
+        setLoading(false)
+      })
 
     // 2. ログイン・ログアウト・トークンリフレッシュを監視
+    //    INITIAL_SESSION は getSession() が担うのでスキップ
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
+      if (event === 'INITIAL_SESSION') return
+
       const u = session?.user ?? null
 
       if (event === 'SIGNED_OUT') {
         setUser(null)
-        setLoading(false)
       } else if (u) {
         setUser(prev => (prev?.id === u.id ? prev : u))
-        setLoading(false)
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           await ensureProfile(u)
         }
+      } else {
+        setUser(null)
       }
     })
 
     return () => {
-      mounted = false  // 非同期コールバックがアンマウント後に state を変更しないよう
+      mounted = false
       subscription.unsubscribe()
     }
   }, [])
