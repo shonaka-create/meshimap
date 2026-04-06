@@ -26,7 +26,7 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
 
-    // 1. まず localStorage から即座にセッションを取得（ネットワーク不要・高速）
+    // 1. localStorage から即座にセッション取得（ネットワーク不要）
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return
       setUser(session?.user ?? null)
@@ -34,7 +34,7 @@ export function useAuth() {
       if (session?.user) ensureProfile(session.user)
     })
 
-    // 2. その後の変化（ログイン・ログアウト・トークンリフレッシュ）を監視
+    // 2. ログイン・ログアウト・トークンリフレッシュを監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
       const u = session?.user ?? null
@@ -49,11 +49,10 @@ export function useAuth() {
           await ensureProfile(u)
         }
       }
-      // INITIAL_SESSION・TOKEN_REFRESHED で null が来ても無視（getSession が正しい値を持っている）
     })
 
     return () => {
-      mounted = true
+      mounted = false  // 非同期コールバックがアンマウント後に state を変更しないよう
       subscription.unsubscribe()
     }
   }, [])
