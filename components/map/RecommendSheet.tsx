@@ -89,9 +89,9 @@ export default function RecommendSheet({
   }, [posts, myUserId, likedPostIds, unvisitedOnly])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end pb-16" onClick={onClose}>
+    <div className="fixed inset-0 z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col"
+        className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ヘッダー */}
