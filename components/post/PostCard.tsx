@@ -27,17 +27,16 @@ export default function PostCard({ post }: PostCardProps) {
 
   useEffect(() => {
     if (!user) return
-    supabase.from('likes').select('user_id').eq('post_id', post.id).eq('user_id', user.id).maybeSingle()
-      .then(async ({ data }) => {
-        if (data && post.likesCount === 0) {
-          // likes テーブルにレコードがあるが likes_count が 0 → 古いデータ。削除して未いいね状態に戻す
-          await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id)
-          setLiked(false)
-        } else {
-          setLiked(!!data)
-        }
+    supabase
+      .from('likes')
+      .select('post_id')
+      .eq('post_id', post.id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setLiked(data !== null)
       })
-  }, [user, post.id, post.likesCount])
+  }, [user?.id, post.id])
 
   useEffect(() => {
     if (!showComments) return
