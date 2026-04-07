@@ -29,15 +29,27 @@ function getStoredUser(): User | null {
   if (typeof window === 'undefined') return null
   try {
     const match = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)
-    if (!match) return null
-    const raw = localStorage.getItem(`sb-${match[1]}-auth-token`)
-    if (!raw) return null
+    if (!match) {
+      console.warn('[useAuth] supabaseUrl からプロジェクト参照を取得できませんでした。URL を確認してください:', supabaseUrl)
+      return null
+    }
+    const key = `sb-${match[1]}-auth-token`
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      // セッションなし（未ログイン）は正常。ログ不要。
+      return null
+    }
     const parsed = JSON.parse(raw)
     const user: User | undefined = parsed?.user
-    if (!user?.id) return null
+    if (!user?.id) {
+      // キーは存在するが user が取れない = Supabase がキー構造を変えた可能性
+      console.warn('[useAuth] localStorage のセッションから user を取得できませんでした。@supabase/supabase-js のバージョンを確認してください。key:', key, 'value:', parsed)
+      return null
+    }
     // 期限切れでも user を返す（onAuthStateChange が正確な状態で上書きする）
     return user
-  } catch {
+  } catch (e) {
+    console.warn('[useAuth] localStorage の読み取り中にエラーが発生しました:', e)
     return null
   }
 }
