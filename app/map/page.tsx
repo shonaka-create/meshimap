@@ -86,7 +86,7 @@ export default function MapPage() {
 
           {/* ユーザー検索入力（常時表示） */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
             <input
               type="text"
               value={userSearch}
@@ -96,7 +96,7 @@ export default function MapPage() {
             />
             {userSearch && (
               <button onClick={() => setUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                <X className="w-4 h-4 text-gray-400" />
+                <X className="w-4 h-4 text-gray-500" />
               </button>
             )}
           </div>

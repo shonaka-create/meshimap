@@ -158,7 +158,7 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
                   className="w-full aspect-square rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-3 hover:border-orange-300 hover:bg-orange-50 transition-colors">
                   <ImagePlus className="w-12 h-12 text-gray-300" />
                   <p className="text-sm text-gray-500">タップして写真を選択</p>
-                  <p className="text-xs text-gray-400">最大5枚まで</p>
+                  <p className="text-xs text-gray-500">最大5枚まで</p>
                 </button>
               ) : (
                 <div className="grid grid-cols-3 gap-2">
