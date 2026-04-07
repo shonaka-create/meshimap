@@ -196,5 +196,19 @@ function SearchContent() {
 }
 
 export default function SearchPage() {
-  return <Suspense><SearchContent /></Suspense>
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <TopBar title="検索" />
+        <main className="pt-14 pb-24 max-w-lg mx-auto">
+          <div className="grid grid-cols-3 gap-0.5 mt-0.5">
+            {[...Array(9)].map((_, i) => <div key={i} className="aspect-square bg-gray-200 animate-pulse" />)}
+          </div>
+        </main>
+        <BottomNav />
+      </div>
+    }>
+      <SearchContent />
+    </Suspense>
+  )
 }
