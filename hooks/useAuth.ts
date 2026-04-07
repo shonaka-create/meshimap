@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseUrl } from '@/lib/supabase'
 
 async function ensureProfile(user: User) {
   const { data } = await supabase.from('profiles').select('id').eq('id', user.id).single()
@@ -19,6 +19,29 @@ async function ensureProfile(user: User) {
   }
 }
 
+/**
+ * Supabase v2 が localStorage に保存するセッションを同期的に読み取る。
+ * キー: sb-{projectRef}-auth-token
+ * INITIAL_SESSION イベントは Navigator Lock 待ちで数秒遅延することがあるため、
+ * この関数で先に user を復元してスピナーを排除する。
+ */
+function getStoredUser(): User | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const match = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)
+    if (!match) return null
+    const raw = localStorage.getItem(`sb-${match[1]}-auth-token`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const user: User | undefined = parsed?.user
+    if (!user?.id) return null
+    // 期限切れでも user を返す（onAuthStateChange が正確な状態で上書きする）
+    return user
+  } catch {
+    return null
+  }
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -26,33 +49,30 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
 
-    // INITIAL_SESSION は onAuthStateChange 登録直後に localStorage から同期的に発火する。
-    // ネットワーク不要で即座に loading を解除できる唯一の正しい高速パス。
-    // （getSession() は期限切れトークン時にネットワーク通信が発生し遅延する）
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return
-
-      if (event === 'INITIAL_SESSION') {
-        setUser(session?.user ?? null)
-        setLoading(false)
-        if (session?.user) ensureProfile(session.user)
-        return
-      }
-
-      const u = session?.user ?? null
-      setUser(u)
+    // ① localStorage から即時復元 → スピナーなしでアプリを表示
+    //    SSR と不一致にならないよう useEffect 内（クライアント専用）で実行
+    const stored = getStoredUser()
+    if (stored) {
+      setUser(stored)
       setLoading(false)
+    }
 
-      if (u && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-        await ensureProfile(u)
+    // ② onAuthStateChange で正確なセッション状態に更新
+    //    INITIAL_SESSION: Navigator Lock 解放後に発火（遅延あり）
+    //    SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED: リアルタイム更新
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return
+      setUser(session?.user ?? null)
+      setLoading(false)
+      if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+        ensureProfile(session.user)
       }
     })
 
-    // INITIAL_SESSION が何らかの理由で遅延した場合のフォールバック（1秒）
-    // lockAcquireTimeout: 0 により Lock は即時取得されるので通常は不要
+    // ③ フォールバック: 万が一 onAuthStateChange が発火しない場合に解除
     const fallback = setTimeout(() => {
       if (mounted) setLoading(false)
-    }, 1000)
+    }, 5000)
 
     return () => {
       mounted = false
