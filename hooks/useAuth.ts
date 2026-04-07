@@ -48,10 +48,11 @@ export function useAuth() {
       }
     })
 
-    // INITIAL_SESSION が何らかの理由で遅延した場合のフォールバック（5秒）
+    // INITIAL_SESSION が何らかの理由で遅延した場合のフォールバック（1秒）
+    // lockAcquireTimeout: 0 により Lock は即時取得されるので通常は不要
     const fallback = setTimeout(() => {
       if (mounted) setLoading(false)
-    }, 5000)
+    }, 1000)
 
     return () => {
       mounted = false

@@ -17,6 +17,23 @@ function FlyToController({ flyTo }: { flyTo?: { pos: [number, number]; key: numb
   return null
 }
 
+// タブ非表示 → 復帰時にタイルが白くなる Leaflet の既知問題を解消する。
+// ブラウザが非アクティブタブのレイアウト計算を止めるため、
+// visibilitychange で visible になった瞬間に invalidateSize() を呼ぶ。
+function InvalidateSizeOnVisible() {
+  const map = useMap()
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setTimeout(() => map.invalidateSize(), 100)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [map])
+  return null
+}
+
 export { GENRE_META }
 
 const createFoodIcon = (genre: string) => {
@@ -60,6 +77,7 @@ export default function MapView({ posts, center = [35.6812, 139.7671], zoom = 12
   return (
     <MapContainer center={center} zoom={zoom} style={{ width: '100%', height: '100%' }}>
       <FlyToController flyTo={flyTo} />
+      <InvalidateSizeOnVisible />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
