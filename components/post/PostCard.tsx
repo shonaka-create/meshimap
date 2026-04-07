@@ -142,8 +142,8 @@ export default function PostCard({ post }: PostCardProps) {
           <div>
             <p className="font-semibold text-sm">{post.userDisplayName}</p>
             <div className="flex items-center gap-1">
-              <MapPin className="w-3 h-3 text-gray-400" />
-              <p className="text-xs text-gray-400">{post.location.name}</p>
+              <MapPin className="w-3 h-3 text-gray-500" />
+              <p className="text-xs text-gray-600">{post.location.name}</p>
             </div>
           </div>
         </Link>
@@ -206,7 +206,7 @@ export default function PostCard({ post }: PostCardProps) {
             {highlightHashtags(post.caption)}
           </p>
         )}
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-gray-500 mt-1">
           {formatDistanceToNow(post.createdAt, { addSuffix: true, locale: ja })}
         </p>
       </div>
@@ -225,7 +225,7 @@ export default function PostCard({ post }: PostCardProps) {
                 </div>
               </div>
             ))}
-            {comments.length === 0 && <p className="text-xs text-gray-400 text-center py-2">最初のコメントを書いてみよう</p>}
+            {comments.length === 0 && <p className="text-xs text-gray-500 text-center py-2">最初のコメントを書いてみよう</p>}
           </div>
           <form onSubmit={submitComment} className="flex gap-2 mt-3">
             <input type="text" value={commentText} onChange={(e) => setCommentText(e.target.value)}

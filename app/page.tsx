@@ -63,7 +63,7 @@ export default function HomePage() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-rose-50">
         <div className="text-center">
           <span className="text-5xl">🍜</span>
-          <p className="text-gray-500 mt-3 text-sm">読み込み中...</p>
+          <p className="text-gray-600 mt-3 text-sm">読み込み中...</p>
         </div>
       </div>
     )
@@ -97,7 +97,7 @@ export default function HomePage() {
           <div className="flex flex-col items-center justify-center py-20 text-center px-8">
             <span className="text-6xl mb-4">🗺️</span>
             <h2 className="text-xl font-bold text-gray-800 mb-2">まだ投稿がありません</h2>
-            <p className="text-gray-500 text-sm leading-relaxed mb-6">
+            <p className="text-gray-600 text-sm leading-relaxed mb-6">
               他のユーザーをフォローするか、<br />初めての投稿を作成してみましょう！
             </p>
             <Link href="/search"

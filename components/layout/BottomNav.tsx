@@ -24,7 +24,7 @@ export default function BottomNav() {
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-40 safe-area-bottom">
         <div className="flex items-center justify-around max-w-lg mx-auto">
           {links.slice(0, 2).map(({ href, icon: Icon, label }) => (
-            <Link key={href} href={href} className={`flex flex-col items-center py-3 px-4 ${pathname === href ? 'text-orange-500' : 'text-gray-500'}`}>
+            <Link key={href} href={href} className={`flex flex-col items-center py-3 px-4 ${pathname === href ? 'text-orange-500' : 'text-gray-600'}`}>
               <Icon className="w-6 h-6" strokeWidth={pathname === href ? 2.5 : 1.8} />
               <span className="text-xs mt-0.5 font-medium">{label}</span>
             </Link>
@@ -41,7 +41,7 @@ export default function BottomNav() {
           </button>
 
           {links.slice(2).map(({ href, icon: Icon, label }) => (
-            <Link key={href} href={href} className={`flex flex-col items-center py-3 px-4 ${pathname === href ? 'text-orange-500' : 'text-gray-500'}`}>
+            <Link key={href} href={href} className={`flex flex-col items-center py-3 px-4 ${pathname === href ? 'text-orange-500' : 'text-gray-600'}`}>
               <Icon className="w-6 h-6" strokeWidth={pathname === href ? 2.5 : 1.8} />
               <span className="text-xs mt-0.5 font-medium">{label}</span>
             </Link>

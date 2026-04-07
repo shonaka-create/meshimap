@@ -107,14 +107,14 @@ export default function ChatPage() {
                   <div className={`px-4 py-2.5 rounded-2xl text-sm ${isMe ? 'bg-gradient-to-r from-orange-400 to-rose-500 text-white rounded-br-sm' : 'bg-white text-gray-800 rounded-bl-sm shadow-sm'}`}>
                     {msg.text}
                   </div>
-                  <p className="text-xs text-gray-400 px-1">
+                  <p className="text-xs text-gray-500 px-1">
                     {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true, locale: ja })}
                   </p>
                 </div>
               </div>
             )
           })}
-          {messages.length === 0 && <p className="text-center text-gray-400 text-sm py-8">メッセージを送ってみよう 👋</p>}
+          {messages.length === 0 && <p className="text-center text-gray-600 text-sm py-8">メッセージを送ってみよう 👋</p>}
           <div ref={bottomRef} />
         </div>
       </main>
