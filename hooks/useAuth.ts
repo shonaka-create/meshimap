@@ -19,64 +19,25 @@ async function ensureProfile(user: User) {
   }
 }
 
-/**
- * Supabase が localStorage に保存したセッションを同期的に読み取り、
- * まだ有効なユーザーを返す。期限切れ・存在しない場合は null。
- * useEffect 冒頭で呼ぶことでスピナーなしに即座にアプリを表示できる。
- */
-function getCachedUser(): User | null {
-  try {
-    const raw = localStorage.getItem('supabase.auth.token')
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    // Supabase v2 のストレージ構造に対応
-    const user: User | undefined = parsed?.user ?? parsed?.currentSession?.user
-    const expiresAt: number | undefined =
-      parsed?.expires_at ?? parsed?.currentSession?.expires_at
-    if (!user) return null
-    // 期限切れなら getSession() の自動リフレッシュに任せる
-    if (expiresAt && expiresAt < Date.now() / 1000) return null
-    return user
-  } catch {
-    return null
-  }
-}
-
 export function useAuth() {
-  // SSR と一致させるため初期値は null / true で固定
-  // （ハイドレーションエラーを防ぐ）
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true
 
-    // ① localStorage から即座に復元 → スピナーを表示せずアプリを見せる
-    const cached = getCachedUser()
-    if (cached) {
-      setUser(cached)
-      setLoading(false)
-    }
+    // INITIAL_SESSION は onAuthStateChange 登録直後に localStorage から同期的に発火する。
+    // ネットワーク不要で即座に loading を解除できる唯一の正しい高速パス。
+    // （getSession() は期限切れトークン時にネットワーク通信が発生し遅延する）
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return
 
-    // ② getSession() でトークン検証・自動リフレッシュ
-    //    キャッシュが有効なら loading はすでに false なので UX に影響しない
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        if (!mounted) return
+      if (event === 'INITIAL_SESSION') {
         setUser(session?.user ?? null)
         setLoading(false)
         if (session?.user) ensureProfile(session.user)
-      })
-      .catch(() => {
-        if (!mounted) return
-        setLoading(false)
-      })
-
-    // ③ ログイン・ログアウト・トークンリフレッシュを監視
-    //    INITIAL_SESSION は ② が担うのでスキップ
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return
-      if (event === 'INITIAL_SESSION') return
+        return
+      }
 
       const u = session?.user ?? null
       setUser(u)
@@ -87,8 +48,14 @@ export function useAuth() {
       }
     })
 
+    // INITIAL_SESSION が何らかの理由で遅延した場合のフォールバック（5秒）
+    const fallback = setTimeout(() => {
+      if (mounted) setLoading(false)
+    }, 5000)
+
     return () => {
       mounted = false
+      clearTimeout(fallback)
       subscription.unsubscribe()
     }
   }, [])

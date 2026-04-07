@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useEffect, useState } from 'react'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import TopBar from '@/components/layout/TopBar'
