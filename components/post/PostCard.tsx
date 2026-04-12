@@ -89,7 +89,6 @@ export default function PostCard({ post }: PostCardProps) {
       // ロールバック
       setLiked(!newLiked)
       setLikesCount((c) => Math.max(0, c - delta))
-      console.error('いいねエラー:', err)
     } finally {
       setLiking(false)
     }

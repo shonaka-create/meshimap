@@ -114,7 +114,6 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
       const raw = err as { message?: string; details?: string; hint?: string } | null
       const msg = raw?.message ?? raw?.details ?? JSON.stringify(err)
       setError(msg || '投稿に失敗しました。もう一度お試しください。')
-      console.error('投稿エラー詳細:', err)
     } finally {
       setUploading(false)
       setUploadStep('')

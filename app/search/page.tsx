@@ -65,7 +65,6 @@ function SearchContent() {
           .limit(60)
         if (data) setDiscoverPosts(data.map(toPost))
       } catch (e) {
-        console.error('おすすめ投稿の取得に失敗しました', e)
       } finally {
         setDiscoverLoading(false)
       }

@@ -34,7 +34,7 @@ export default function MapPage() {
       .select('post_id')
       .eq('user_id', user.id)
       .then(({ data, error }) => {
-        if (error) { console.error('いいね情報の取得に失敗しました', error); return }
+        if (error) { return }
         if (data) setLikedPostIds(data.map((r) => r.post_id as string))
       })
   }, [user?.id])
@@ -58,7 +58,6 @@ export default function MapPage() {
           .limit(200)
         if (data) setPosts(data.map(toPost))
       } catch (e) {
-        console.error('地図データの取得に失敗しました', e)
       }
     }
     fetchPosts()

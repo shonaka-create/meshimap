@@ -55,7 +55,6 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
           setIsFollowing(!!f)
         }
       } catch (e) {
-        console.error('プロフィールデータの取得に失敗しました', e)
       } finally {
         setLoading(false)
       }

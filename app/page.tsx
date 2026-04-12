@@ -50,7 +50,6 @@ export default function HomePage() {
           setPosts(data.map(toPost))
         }
       } catch (e) {
-        console.error('投稿の取得に失敗しました', e)
       } finally {
         setPostsLoading(false)
       }
