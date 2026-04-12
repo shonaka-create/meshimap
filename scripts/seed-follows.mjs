@@ -15,7 +15,6 @@ const ACCOUNTS = [
   { email: 'kenji.meshimap@gmail.com',   password: 'password123' },
   { email: 'yuki.meshimap@gmail.com',    password: 'password123' },
   { email: 'yamada.meshimap@gmail.com',  password: 'password123' },
-  { email: 'nakaebisu.shotaro1543@gmail.com', password: '1543baske' },
 ]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

@@ -49,7 +49,7 @@ export default function LoginForm() {
         <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-sm w-full">
           <div className="text-5xl mb-4">📧</div>
           <h2 className="text-xl font-bold mb-2">メールを確認してください</h2>
-          <p className="text-gray-500 text-sm">{verifyMessage}</p>
+          <p className="text-gray-600 text-sm">{verifyMessage}</p>
           <button onClick={() => setVerifyMessage('')} className="mt-6 text-orange-500 text-sm font-medium">
             ログイン画面に戻る
           </button>
@@ -66,15 +66,15 @@ export default function LoginForm() {
             <span className="text-3xl">🍜</span>
           </div>
           <h1 className="text-3xl font-bold text-gray-900">MeshiMap</h1>
-          <p className="text-gray-500 text-sm mt-1">食の思い出を地図に残そう</p>
+          <p className="text-gray-600 text-sm mt-1">食の思い出を地図に残そう</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="flex rounded-xl bg-gray-100 p-1 mb-6">
-            <button onClick={() => setMode('login')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${mode === 'login' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+            <button onClick={() => setMode('login')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${mode === 'login' ? 'bg-white shadow text-gray-900' : 'text-gray-600'}`}>
               ログイン
             </button>
-            <button onClick={() => setMode('signup')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${mode === 'signup' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+            <button onClick={() => setMode('signup')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${mode === 'signup' ? 'bg-white shadow text-gray-900' : 'text-gray-600'}`}>
               新規登録
             </button>
           </div>
@@ -82,21 +82,21 @@ export default function LoginForm() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
                 <input type="text" placeholder="ユーザー名" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
               </div>
             )}
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
               <input type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
             </div>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
               <input type={showPassword ? 'text' : 'password'} placeholder="パスワード（6文字以上）" value={password} onChange={(e) => setPassword(e.target.value)}
                 className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
@@ -111,7 +111,7 @@ export default function LoginForm() {
 
           <div className="flex items-center my-5">
             <div className="flex-1 h-px bg-gray-200" />
-            <span className="mx-3 text-xs text-gray-400">または</span>
+            <span className="mx-3 text-xs text-gray-500">または</span>
             <div className="flex-1 h-px bg-gray-200" />
           </div>
 

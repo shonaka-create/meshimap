@@ -75,7 +75,7 @@ export default function DMListPage() {
           <div className="flex flex-col items-center justify-center py-20 text-center px-8">
             <MessageCircle className="w-16 h-16 text-gray-200 mb-4" />
             <h2 className="text-lg font-bold text-gray-700">メッセージはまだありません</h2>
-            <p className="text-gray-400 text-sm mt-2">フォロワーのプロフィールから<br />メッセージを送ってみよう</p>
+            <p className="text-gray-600 text-sm mt-2">フォロワーのプロフィールから<br />メッセージを送ってみよう</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100 bg-white">
@@ -89,11 +89,11 @@ export default function DMListPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <p className="font-semibold text-sm">{chat.other.display_name}</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-500">
                       {chat.last_message_at ? formatDistanceToNow(new Date(chat.last_message_at), { addSuffix: true, locale: ja }) : ''}
                     </p>
                   </div>
-                  <p className="text-sm text-gray-500 truncate">{chat.last_message || 'メッセージを開始しましょう'}</p>
+                  <p className="text-sm text-gray-600 truncate">{chat.last_message || 'メッセージを開始しましょう'}</p>
                 </div>
               </Link>
             ))}

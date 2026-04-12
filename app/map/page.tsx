@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useEffect, useState } from 'react'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import TopBar from '@/components/layout/TopBar'
@@ -24,7 +22,6 @@ export default function MapPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [selectedGenre, setSelectedGenre] = useState('すべて')
   const [userSearch, setUserSearch] = useState('')
-  const [showUserSearch, setShowUserSearch] = useState(false)
   const [showRecommend, setShowRecommend] = useState(false)
   const [likedPostIds, setLikedPostIds] = useState<string[]>([])
   const [flyTo, setFlyTo] = useState<{ pos: [number, number]; key: number } | undefined>()
@@ -36,84 +33,72 @@ export default function MapPage() {
       .from('likes')
       .select('post_id')
       .eq('user_id', user.id)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { return }
         if (data) setLikedPostIds(data.map((r) => r.post_id as string))
       })
-  }, [user])
+  }, [user?.id])
 
   useEffect(() => {
     if (!user) return
     const fetchPosts = async () => {
-      let ids: string[]
-      if (viewMode === 'mine') {
-        ids = [user.id]
-      } else {
-        const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
-        ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
+      try {
+        let ids: string[]
+        if (viewMode === 'mine') {
+          ids = [user.id]
+        } else {
+          const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
+          ids = [user.id, ...(follows?.map((f) => f.following_id) ?? [])]
+        }
+        const { data } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
+          .in('user_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(200)
+        if (data) setPosts(data.map(toPost))
+      } catch (e) {
       }
-      const { data } = await supabase
-        .from('posts')
-        .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
-        .in('user_id', ids)
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (data) setPosts(data.map(toPost))
     }
     fetchPosts()
-  }, [user, viewMode])
+  }, [user?.id, viewMode])
 
   const filtered = posts
     .filter((p) => selectedGenre === 'すべて' || p.genre === selectedGenre)
     .filter((p) => !userSearch.trim() || p.userDisplayName.includes(userSearch.trim()))
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-[100dvh] flex flex-col bg-gray-50">
       <TopBar title="地図" />
-      <main className="pt-14 pb-24">
-        <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2">
+      <main className="flex-1 overflow-hidden flex flex-col pt-14 pb-16">
+        <div className="bg-white border-b border-gray-100 px-4 py-2 space-y-2 shrink-0">
 
-          {/* モード切替 + ユーザー検索ボタン + おすすめボタン */}
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-xl bg-gray-100 p-1 flex-1">
-              {(['all', 'mine'] as ViewMode[]).map((m) => (
-                <button key={m} onClick={() => setViewMode(m)}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-                  {m === 'all' ? 'フォロー中' : '自分だけ'}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowRecommend(true)}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-gradient-to-r from-orange-400 to-rose-500 text-white text-xs font-semibold shadow-sm shrink-0">
-              <Sparkles className="w-3.5 h-3.5" />
-              おすすめ
-            </button>
-            <button
-              onClick={() => { setShowUserSearch(!showUserSearch); setUserSearch('') }}
-              className={`p-2 rounded-xl border transition-all ${showUserSearch ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-              <Search className="w-4 h-4" />
-            </button>
+          {/* モード切替 */}
+          <div className="flex rounded-xl bg-gray-100 p-1">
+            {(['all', 'mine'] as ViewMode[]).map((m) => (
+              <button key={m} onClick={() => setViewMode(m)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+                {m === 'all' ? 'フォロー中' : '自分だけ'}
+              </button>
+            ))}
           </div>
 
-          {/* ユーザー検索入力 */}
-          {showUserSearch && (
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="ユーザー名で絞り込む"
-                autoFocus
-                className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-              />
-              {userSearch && (
-                <button onClick={() => setUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <X className="w-4 h-4 text-gray-400" />
-                </button>
-              )}
-            </div>
-          )}
+          {/* ユーザー検索入力（常時表示） */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="ユーザー名で絞り込む"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 transition-all"
+            />
+            {userSearch && (
+              <button onClick={() => setUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            )}
+          </div>
 
           {/* ジャンルフィルター */}
           <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
@@ -135,30 +120,39 @@ export default function MapPage() {
           </div>
         </div>
 
-        <div style={{ height: 'calc(100vh - 230px)' }}>
+        <div className={`relative transition-all duration-300 ${showRecommend ? 'h-[35%]' : 'flex-1'} min-h-0 shrink-0`}>
           <MapView posts={filtered} flyTo={flyTo} />
+          {!showRecommend && (
+            <button
+              onClick={() => setShowRecommend(true)}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-orange-400 to-rose-500 text-white font-bold text-sm shadow-xl shadow-orange-300/50 active:scale-95 transition-transform whitespace-nowrap"
+            >
+              <Sparkles className="w-4 h-4" />
+              おすすめを見る
+            </button>
+          )}
         </div>
 
-        <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2">
-          {userSearch && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{userSearch}</span>}
-          {selectedGenre !== 'すべて' && <span className="text-base">{GENRE_META[selectedGenre]?.emoji}</span>}
-          <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
-        </div>
+        {showRecommend && user ? (
+          <RecommendSheet
+            posts={posts}
+            myUserId={user.id}
+            likedPostIds={likedPostIds}
+            onClose={() => setShowRecommend(false)}
+            onSelectSpot={(post) => {
+              setShowRecommend(false)
+              setFlyTo({ pos: [post.location.lat, post.location.lng], key: Date.now() })
+            }}
+          />
+        ) : (
+          <div className="bg-white px-4 py-2.5 border-t border-gray-100 flex items-center gap-2 shrink-0">
+            {userSearch && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{userSearch}</span>}
+            {selectedGenre !== 'すべて' && <span className="text-base">{GENRE_META[selectedGenre]?.emoji}</span>}
+            <p className="text-xs text-gray-500"><span className="font-semibold text-gray-700">{filtered.length}件</span>のスポットを表示中</p>
+          </div>
+        )}
       </main>
       <BottomNav />
-
-      {showRecommend && user && (
-        <RecommendSheet
-          posts={posts}
-          myUserId={user.id}
-          likedPostIds={likedPostIds}
-          onClose={() => setShowRecommend(false)}
-          onSelectSpot={(post) => {
-            setShowRecommend(false)
-            setFlyTo({ pos: [post.location.lat, post.location.lng], key: Date.now() })
-          }}
-        />
-      )}
     </div>
   )
 }

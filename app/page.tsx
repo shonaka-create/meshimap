@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useEffect, useState } from 'react'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import TopBar from '@/components/layout/TopBar'
@@ -16,6 +14,13 @@ export default function HomePage() {
   const { user, loading } = useAuthContext()
   const [posts, setPosts] = useState<Post[]>([])
   const [postsLoading, setPostsLoading] = useState(true)
+
+  // フェッチがハングしても5秒で強制解除
+  useEffect(() => {
+    if (!postsLoading) return
+    const t = setTimeout(() => setPostsLoading(false), 5000)
+    return () => clearTimeout(t)
+  }, [postsLoading])
 
   useEffect(() => {
     if (!user) return
@@ -45,20 +50,19 @@ export default function HomePage() {
           setPosts(data.map(toPost))
         }
       } catch (e) {
-        console.error('投稿の取得に失敗しました', e)
       } finally {
         setPostsLoading(false)
       }
     }
     fetchPosts()
-  }, [user])
+  }, [user?.id])
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-rose-50">
         <div className="text-center">
           <span className="text-5xl">🍜</span>
-          <p className="text-gray-500 mt-3 text-sm">読み込み中...</p>
+          <p className="text-gray-600 mt-3 text-sm">読み込み中...</p>
         </div>
       </div>
     )
@@ -92,7 +96,7 @@ export default function HomePage() {
           <div className="flex flex-col items-center justify-center py-20 text-center px-8">
             <span className="text-6xl mb-4">🗺️</span>
             <h2 className="text-xl font-bold text-gray-800 mb-2">まだ投稿がありません</h2>
-            <p className="text-gray-500 text-sm leading-relaxed mb-6">
+            <p className="text-gray-600 text-sm leading-relaxed mb-6">
               他のユーザーをフォローするか、<br />初めての投稿を作成してみましょう！
             </p>
             <Link href="/search"

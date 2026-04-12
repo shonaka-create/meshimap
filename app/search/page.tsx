@@ -57,13 +57,17 @@ function SearchContent() {
   useEffect(() => {
     const fetchDiscover = async () => {
       setDiscoverLoading(true)
-      const { data } = await supabase
-        .from('posts')
-        .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
-        .order('created_at', { ascending: false })
-        .limit(60)
-      if (data) setDiscoverPosts(data.map(toPost))
-      setDiscoverLoading(false)
+      try {
+        const { data } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)')
+          .order('created_at', { ascending: false })
+          .limit(60)
+        if (data) setDiscoverPosts(data.map(toPost))
+      } catch (e) {
+      } finally {
+        setDiscoverLoading(false)
+      }
     }
     fetchDiscover()
   }, [])
@@ -126,7 +130,7 @@ function SearchContent() {
       <main className="pt-14 pb-24 max-w-lg mx-auto">
         <div className="bg-white px-4 py-3 border-b border-gray-100">
           <form onSubmit={(e) => { e.preventDefault(); handleSearch() }} className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
             <input type="text" value={searchText} onChange={(e) => { setSearchText(e.target.value); if (!e.target.value) setSearched(false) }}
               placeholder="#ハッシュタグ・ユーザー名・お店の名前"
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
@@ -154,7 +158,7 @@ function SearchContent() {
             ) : discoverPosts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center px-8">
                 <span className="text-5xl mb-3">🍽️</span>
-                <p className="text-gray-500 text-sm">まだ投稿がありません</p>
+                <p className="text-gray-600 text-sm">まだ投稿がありません</p>
               </div>
             ) : (
               <PostGrid posts={discoverPosts} />
@@ -171,12 +175,12 @@ function SearchContent() {
         {searched && !loading && (
           <>
             <div className="px-4 py-2.5 bg-white border-b border-gray-100">
-              <p className="text-sm text-gray-500"><span className="font-semibold text-gray-700">{results.length}件</span>の結果</p>
+              <p className="text-sm text-gray-600"><span className="font-semibold text-gray-800">{results.length}件</span>の結果</p>
             </div>
             {results.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center px-8">
                 <span className="text-5xl mb-3">🔍</span>
-                <p className="text-gray-500 text-sm">投稿が見つかりませんでした</p>
+                <p className="text-gray-600 text-sm">投稿が見つかりませんでした</p>
                 <button onClick={() => { setSearched(false); setSearchText('') }} className="mt-4 text-orange-500 text-sm">おすすめを見る</button>
               </div>
             ) : (
@@ -191,5 +195,19 @@ function SearchContent() {
 }
 
 export default function SearchPage() {
-  return <Suspense><SearchContent /></Suspense>
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <TopBar title="検索" />
+        <main className="pt-14 pb-24 max-w-lg mx-auto">
+          <div className="grid grid-cols-3 gap-0.5 mt-0.5">
+            {[...Array(9)].map((_, i) => <div key={i} className="aspect-square bg-gray-200 animate-pulse" />)}
+          </div>
+        </main>
+        <BottomNav />
+      </div>
+    }>
+      <SearchContent />
+    </Suspense>
+  )
 }

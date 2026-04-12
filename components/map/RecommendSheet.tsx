@@ -89,11 +89,8 @@ export default function RecommendSheet({
   }, [posts, myUserId, likedPostIds, unvisitedOnly])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
-      <div
-        className="bg-white rounded-t-2xl shadow-2xl max-h-[75vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="flex-1 min-h-0 flex flex-col bg-white border-t border-gray-100">
+      <div className="flex flex-col flex-1 min-h-0">
         {/* ヘッダー */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100">
           <div className="flex items-center justify-between mb-1">
@@ -102,17 +99,17 @@ export default function RecommendSheet({
               <h2 className="font-bold text-base">今日のおすすめ</h2>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-full bg-gray-100">
-              <X className="w-4 h-4 text-gray-500" />
+              <X className="w-4 h-4 text-gray-600" />
             </button>
           </div>
 
           {tasteLabel ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-600">
               あなたの好み:{' '}
               <span className="text-orange-600 font-medium">{tasteLabel}</span> をもとにピックアップ
             </p>
           ) : (
-            <p className="text-xs text-gray-400">投稿やいいねをもとにおすすめをピックアップします</p>
+            <p className="text-xs text-gray-600">投稿やいいねをもとにおすすめをピックアップします</p>
           )}
 
           <button
@@ -120,7 +117,7 @@ export default function RecommendSheet({
             className={`mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all ${
               unvisitedOnly
                 ? 'bg-orange-50 border-orange-300 text-orange-600 font-medium'
-                : 'bg-gray-100 border-gray-200 text-gray-500'
+                : 'bg-gray-100 border-gray-200 text-gray-600'
             }`}
           >
             {unvisitedOnly && <span>✓</span>}
@@ -131,7 +128,7 @@ export default function RecommendSheet({
         {/* リスト */}
         <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
           {recommendations.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-500">
               <p className="text-4xl mb-2">🍽️</p>
               <p className="text-sm">おすすめが見つかりませんでした</p>
               <p className="text-xs mt-1">フォローを増やすと精度が上がります</p>
@@ -160,9 +157,9 @@ export default function RecommendSheet({
                       >
                         {post.genre}
                       </span>
-                      <span className="text-xs text-gray-400">{post.priceRange}</span>
+                      <span className="text-xs text-gray-600">{post.priceRange}</span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate">
+                    <p className="text-xs text-gray-600 mt-0.5 truncate">
                       {visitors.slice(0, 2).join('・')}
                       {visitors.length > 2 ? ` ほか${visitors.length - 2}人` : ''}
                       {' が訪問'}

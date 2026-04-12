@@ -26,22 +26,41 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
   const [showEditModal, setShowEditModal] = useState(false)
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchData = async () => {
       setLoading(true)
-      const [{ data: p }, { data: raw }] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', uid).single(),
-        supabase.from('posts').select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)').eq('user_id', uid).order('created_at', { ascending: false }),
-      ])
-      if (p) setProfile(p)
-      if (raw) setPosts(raw.map(toPost))
-      if (user && !isOwnProfile) {
-        const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
-        setIsFollowing(!!f)
+      try {
+        const [{ data: p }, { data: raw }] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
+          supabase.from('posts').select('*, profiles!posts_user_id_fkey(display_name, photo_url), post_images(url, position)').eq('user_id', uid).order('created_at', { ascending: false }),
+        ])
+        let resolvedProfile = p
+        // プロフィールが存在しない場合、自分のプロフィールなら自動作成する
+        if (!resolvedProfile && isOwnProfile && user) {
+          const displayName = user.user_metadata?.display_name ?? user.email?.split('@')[0] ?? 'ユーザー'
+          const { data: created } = await supabase.from('profiles').upsert({
+            id: uid,
+            display_name: displayName,
+            bio: '',
+            photo_url: user.user_metadata?.avatar_url ?? null,
+            followers_count: 0,
+            following_count: 0,
+            posts_count: 0,
+          }, { onConflict: 'id' }).select().single()
+          resolvedProfile = created
+        }
+        if (resolvedProfile) setProfile(resolvedProfile)
+        if (raw) setPosts(raw.map(toPost))
+        if (user && !isOwnProfile) {
+          const { data: f } = await supabase.from('follows').select('follower_id').eq('follower_id', user.id).eq('following_id', uid).maybeSingle()
+          setIsFollowing(!!f)
+        }
+      } catch (e) {
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
-    fetch()
-  }, [uid, user, isOwnProfile])
+    fetchData()
+  }, [uid, user?.id, isOwnProfile])
 
   const toggleFollow = async () => {
     if (!user || !profile) return
@@ -148,7 +167,7 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
       <div className="flex border-b border-gray-200 bg-white flex-shrink-0">
         {[{ id: 'grid', label: 'グリッド', icon: Grid }, { id: 'map', label: '地図', icon: MapPin }].map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setView(id as 'grid' | 'map')}
-            className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm font-medium ${view === id ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}>
+            className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm font-medium ${view === id ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600'}`}>
             <Icon className="w-4 h-4" />{label}
           </button>
         ))}
@@ -157,7 +176,7 @@ export default function UserProfileView({ uid, isOwnProfile }: UserProfileViewPr
       <div className="flex-1 overflow-y-auto pb-24">
         {view === 'grid' && (
           posts.length === 0
-            ? <div className="flex flex-col items-center justify-center py-16 text-center"><span className="text-5xl mb-3">📷</span><p className="text-gray-500 text-sm">{isOwnProfile ? '最初の投稿をしてみよう！' : 'まだ投稿がありません'}</p></div>
+            ? <div className="flex flex-col items-center justify-center py-16 text-center"><span className="text-5xl mb-3">📷</span><p className="text-gray-600 text-sm">{isOwnProfile ? '最初の投稿をしてみよう！' : 'まだ投稿がありません'}</p></div>
             : <div className="grid grid-cols-3 gap-0.5">
               {posts.map((post) => (
                 <div key={post.id} className="relative aspect-square bg-gray-100 group cursor-pointer">
@@ -282,7 +301,7 @@ function EditProfileModal({ profile, onClose, onSaved }: {
 
           {/* ユーザー名 */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">ユーザー名</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">ユーザー名</label>
             <input
               type="text"
               value={displayName}
@@ -294,7 +313,7 @@ function EditProfileModal({ profile, onClose, onSaved }: {
 
           {/* 自己紹介 */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">自己紹介</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">自己紹介</label>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
@@ -302,7 +321,7 @@ function EditProfileModal({ profile, onClose, onSaved }: {
               placeholder="食の好みや行きつけのお店など..."
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 resize-none"
             />
-            <p className="text-xs text-gray-400 mt-1 text-right">{bio.length} 文字</p>
+            <p className="text-xs text-gray-500 mt-1 text-right">{bio.length} 文字</p>
           </div>
 
           {error && (

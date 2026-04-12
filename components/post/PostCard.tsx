@@ -17,7 +17,9 @@ export default function PostCard({ post }: PostCardProps) {
   const { user } = useAuthContext()
   const [liked, setLiked] = useState(false)
   const [likesCount, setLikesCount] = useState(post.likesCount)
+  const [liking, setLiking] = useState(false)
   const [imageIndex, setImageIndex] = useState(0)
+  const [imgError, setImgError] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [comments, setComments] = useState<Comment[]>([])
   const [commentsCount, setCommentsCount] = useState(post.commentsCount)
@@ -25,9 +27,16 @@ export default function PostCard({ post }: PostCardProps) {
 
   useEffect(() => {
     if (!user) return
-    supabase.from('likes').select('user_id').eq('post_id', post.id).eq('user_id', user.id).maybeSingle()
-      .then(({ data }) => setLiked(!!data))
-  }, [user, post.id])
+    supabase
+      .from('likes')
+      .select('post_id')
+      .eq('post_id', post.id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setLiked(data !== null)
+      })
+  }, [user?.id, post.id])
 
   useEffect(() => {
     if (!showComments) return
@@ -49,17 +58,40 @@ export default function PostCard({ post }: PostCardProps) {
   }, [showComments, post.id])
 
   const toggleLike = async () => {
-    if (!user) return
-    if (liked) {
-      await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id)
-      await supabase.from('posts').update({ likes_count: likesCount - 1 }).eq('id', post.id)
-      setLikesCount((c) => c - 1)
-    } else {
-      await supabase.from('likes').insert({ post_id: post.id, user_id: user.id })
-      await supabase.from('posts').update({ likes_count: likesCount + 1 }).eq('id', post.id)
-      setLikesCount((c) => c + 1)
+    if (!user || liking) return
+    setLiking(true)
+
+    // 楽観的更新
+    const newLiked = !liked
+    const delta = newLiked ? 1 : -1
+    setLiked(newLiked)
+    setLikesCount((c) => Math.max(0, c + delta))
+
+    try {
+      if (newLiked) {
+        const { error } = await supabase.from('likes').upsert(
+          { post_id: post.id, user_id: user.id },
+          { onConflict: 'post_id,user_id', ignoreDuplicates: true }
+        )
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id)
+        if (error) throw error
+      }
+      // DB の likes_count をインクリメント/デクリメント（現在値を取得してから更新）
+      const { data: fresh } = await supabase.from('posts').select('likes_count').eq('id', post.id).single()
+      const freshCount = (fresh?.likes_count as number) ?? 0
+      const newCount = Math.max(0, freshCount + delta)
+      const { error: updateError } = await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id)
+      if (updateError) throw updateError
+      setLikesCount(newCount)
+    } catch (err) {
+      // ロールバック
+      setLiked(!newLiked)
+      setLikesCount((c) => Math.max(0, c - delta))
+    } finally {
+      setLiking(false)
     }
-    setLiked(!liked)
   }
 
   const submitComment = async (e: React.FormEvent) => {
@@ -109,8 +141,8 @@ export default function PostCard({ post }: PostCardProps) {
           <div>
             <p className="font-semibold text-sm">{post.userDisplayName}</p>
             <div className="flex items-center gap-1">
-              <MapPin className="w-3 h-3 text-gray-400" />
-              <p className="text-xs text-gray-400">{post.location.name}</p>
+              <MapPin className="w-3 h-3 text-gray-500" />
+              <p className="text-xs text-gray-600">{post.location.name}</p>
             </div>
           </div>
         </Link>
@@ -121,16 +153,27 @@ export default function PostCard({ post }: PostCardProps) {
       </div>
 
       <div className="relative aspect-square bg-gray-100">
-        {post.imageURLs[imageIndex] && <img src={post.imageURLs[imageIndex]} alt="" className="w-full h-full object-cover" />}
+        {post.imageURLs.length === 0 || imgError ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-300">
+            <span className="text-5xl">🍽️</span>
+          </div>
+        ) : (
+          <img
+            src={post.imageURLs[imageIndex]}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        )}
         {post.imageURLs.length > 1 && (
           <>
             {imageIndex > 0 && (
-              <button onClick={() => setImageIndex((i) => i - 1)} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/30 rounded-full flex items-center justify-center">
+              <button onClick={() => { setImageIndex((i) => i - 1); setImgError(false) }} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/30 rounded-full flex items-center justify-center">
                 <ChevronLeft className="w-5 h-5 text-white" />
               </button>
             )}
             {imageIndex < post.imageURLs.length - 1 && (
-              <button onClick={() => setImageIndex((i) => i + 1)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/30 rounded-full flex items-center justify-center">
+              <button onClick={() => { setImageIndex((i) => i + 1); setImgError(false) }} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/30 rounded-full flex items-center justify-center">
                 <ChevronRight className="w-5 h-5 text-white" />
               </button>
             )}
@@ -147,7 +190,7 @@ export default function PostCard({ post }: PostCardProps) {
 
       <div className="px-4 pt-3 pb-1">
         <div className="flex items-center gap-3">
-          <button onClick={toggleLike} className="flex items-center gap-1.5 group">
+          <button onClick={toggleLike} disabled={liking} className="flex items-center gap-1.5 group disabled:opacity-70">
             <Heart className={`w-6 h-6 transition-all ${liked ? 'fill-red-500 text-red-500 scale-110' : 'text-gray-700 group-hover:text-red-400'}`} />
             <span className="text-sm font-medium">{likesCount}</span>
           </button>
@@ -162,7 +205,7 @@ export default function PostCard({ post }: PostCardProps) {
             {highlightHashtags(post.caption)}
           </p>
         )}
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-gray-500 mt-1">
           {formatDistanceToNow(post.createdAt, { addSuffix: true, locale: ja })}
         </p>
       </div>
@@ -181,7 +224,7 @@ export default function PostCard({ post }: PostCardProps) {
                 </div>
               </div>
             ))}
-            {comments.length === 0 && <p className="text-xs text-gray-400 text-center py-2">最初のコメントを書いてみよう</p>}
+            {comments.length === 0 && <p className="text-xs text-gray-500 text-center py-2">最初のコメントを書いてみよう</p>}
           </div>
           <form onSubmit={submitComment} className="flex gap-2 mt-3">
             <input type="text" value={commentText} onChange={(e) => setCommentText(e.target.value)}

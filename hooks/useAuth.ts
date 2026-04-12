@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseUrl } from '@/lib/supabase'
 
 async function ensureProfile(user: User) {
   const { data } = await supabase.from('profiles').select('id').eq('id', user.id).single()
@@ -19,37 +19,77 @@ async function ensureProfile(user: User) {
   }
 }
 
+/**
+ * Supabase v2 が localStorage に保存するセッションを同期的に読み取る。
+ * キー: sb-{projectRef}-auth-token
+ * INITIAL_SESSION イベントは Navigator Lock 待ちで数秒遅延することがあるため、
+ * この関数で先に user を復元してスピナーを排除する。
+ */
+function getStoredUser(): User | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const match = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)
+    if (!match) {
+      console.warn('[useAuth] supabaseUrl からプロジェクト参照を取得できませんでした。URL を確認してください:', supabaseUrl)
+      return null
+    }
+    const key = `sb-${match[1]}-auth-token`
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      // セッションなし（未ログイン）は正常。ログ不要。
+      return null
+    }
+    const parsed = JSON.parse(raw)
+    const user: User | undefined = parsed?.user
+    if (!user?.id) {
+      // キーは存在するが user が取れない = Supabase がキー構造を変えた可能性
+      console.warn('[useAuth] localStorage のセッションから user を取得できませんでした。@supabase/supabase-js のバージョンを確認してください。key:', key, 'value:', parsed)
+      return null
+    }
+    // 期限切れでも user を返す（onAuthStateChange が正確な状態で上書きする）
+    return user
+  } catch (e) {
+    console.warn('[useAuth] localStorage の読み取り中にエラーが発生しました:', e)
+    return null
+  }
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true) // INITIAL_SESSION を待つ
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    let resolved = false
+    let mounted = true
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const u = session?.user ?? null
-      // ユーザーIDが変わった場合のみ更新（TOKEN_REFRESHED等で同一ユーザーの再レンダーを防ぐ）
-      setUser(prev => (prev?.id === u?.id ? prev : u))
-      if (!resolved) {
-        resolved = true
-        setLoading(false) // INITIAL_SESSION が来たらローディング終了
-      }
-      if (u && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
-        await ensureProfile(u)
+    // ① localStorage から即時復元 → スピナーなしでアプリを表示
+    //    SSR と不一致にならないよう useEffect 内（クライアント専用）で実行
+    const stored = getStoredUser()
+    if (stored) {
+      setUser(stored)
+      setLoading(false)
+    }
+
+    // ② onAuthStateChange で正確なセッション状態に更新
+    //    INITIAL_SESSION: Navigator Lock 解放後に発火（遅延あり）
+    //    SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED: リアルタイム更新
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return
+      setUser(session?.user ?? null)
+      setLoading(false)
+      if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+        ensureProfile(session.user)
       }
     })
 
-    // 安全策: 3秒以内に認証イベントが来なければ強制終了
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        setLoading(false)
-      }
-    }, 3000)
+    // ③ フォールバック: 万が一 onAuthStateChange が発火しない場合に解除
+    const fallback = setTimeout(() => {
+      if (mounted) setLoading(false)
+    }, 5000)
 
     return () => {
+      mounted = false
+      clearTimeout(fallback)
       subscription.unsubscribe()
-      clearTimeout(timeout)
     }
   }, [])
 
@@ -72,16 +112,6 @@ export function useAuth() {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    if (data.user) {
-      const { data: profile } = await supabase.from('profiles').select('id').eq('id', data.user.id).single()
-      if (!profile) {
-        await supabase.from('profiles').insert({
-          id: data.user.id,
-          display_name: data.user.user_metadata?.full_name ?? data.user.email?.split('@')[0] ?? '名無し',
-          photo_url: data.user.user_metadata?.avatar_url ?? null,
-        })
-      }
-    }
     return data
   }
 
