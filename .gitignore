@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# キー名のみのテンプレートは追跡する（値は書かないこと）
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +41,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# expo / react-native
+/mobile/.expo/
+/mobile/node_modules/
+/mobile/ios/
+/mobile/android/
+*.jks
+*.p8
+*.p12
+*.mobileprovision

@@ -1,0 +1,54 @@
+name: CI
+
+# main / develop 宛の PR と、それらへの push で実行する。
+# 本番ビルド（next build）は環境変数が必要なため Vercel 側に任せ、
+# ここでは環境変数なしで動く lint と型チェックだけを回す。
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+  # モバイル（Expo）は独立した npm プロジェクト。
+  # mobile/ をコミットして package-lock.json を生成したら、下記を有効化する。
+  #
+  # mobile:
+  #   name: mobile
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       working-directory: mobile
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 22
+  #         cache: npm
+  #         cache-dependency-path: mobile/package-lock.json
+  #     - run: npm ci
+  #     - run: npm run typecheck
