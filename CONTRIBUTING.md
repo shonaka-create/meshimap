@@ -17,10 +17,16 @@ feature/*   ← 各人の作業ブランチ（ローカル）
 
 | ブランチ | 役割 | 直接 push | デプロイ先 |
 |---|---|---|---|
-| `main` | 本番。常にリリース可能な状態を保つ | 禁止（PR のみ） | Vercel Production |
-| `develop` | テスト。次リリース候補の統合先 | 禁止（PR のみ） | Vercel Preview |
+| `main` | 本番。常にリリース可能な状態を保つ | 禁止（PR のみ） | 新 Vercel プロジェクトの Production |
+| `develop` | テスト。次リリース候補の統合先 | 禁止（PR のみ） | 同 Preview |
 | `feature/*` `fix/*` `chore/*` | 個人の作業用。使い捨て | 自由 | Preview（PR 作成時） |
 | `hotfix/*` | 本番の緊急修正。`main` から切る | 自由 | Preview |
+
+> **デプロイ先について（重要）**
+> 旧 Vercel プロジェクト `shonaka-creates-projects/meshimap` へは**デプロイしません**。
+> 別プロジェクトを新規作成してそちらに紐付けます。
+> 旧プロジェクトが自動デプロイしないよう、Vercel ダッシュボードで
+> **Settings → Git → Disconnect**（または Ignored Build Step に `exit 0`）を設定してください。
 
 > **現在の運用フェーズ（2026-08 時点）**
 > 立ち上げ期のため、オーナー（@shonaka-create）は当面 `main` へ直接 push します。
@@ -181,6 +187,7 @@ git push origin develop
 - 変数を増やしたら `.env.example` にキー名だけ追記して PR に含める
 - 実際の値は Slack / 1Password など Git 外で共有する
 - Vercel 側の環境変数は Production / Preview / Development で個別に設定する
+  （新プロジェクト作成時に設定し直すこと。旧プロジェクトの値は流用されない）
 
 ### セットアップ
 

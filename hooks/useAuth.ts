@@ -65,6 +65,7 @@ export function useAuth() {
     //    SSR と不一致にならないよう useEffect 内（クライアント専用）で実行
     const stored = getStoredUser()
     if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ①のとおり初回マウント時の同期復元は意図的
       setUser(stored)
       setLoading(false)
     }
