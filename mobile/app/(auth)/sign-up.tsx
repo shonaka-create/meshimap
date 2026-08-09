@@ -7,8 +7,9 @@ import { Link, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useAuth, toJapaneseAuthError, validateUsername } from '../../src/hooks/useAuth'
-import { useTheme, space, radius } from '../../src/theme'
+import { useTheme, space, radius, shadow } from '../../src/theme'
 import { Button, Field, Txt } from '../../src/components/ui'
+import { AuthBackdrop, AuthBrand } from '../../src/components/AuthBackdrop'
 
 type Availability = 'idle' | 'checking' | 'free' | 'taken' | 'invalid'
 
@@ -74,7 +75,7 @@ export default function SignUp() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
         <View style={styles.confirm}>
-          <View style={[styles.mark, { backgroundColor: colors.accentSoft }]}>
+          <View style={[styles.emailMark, { backgroundColor: colors.accentSoft }]}>
             <Txt style={{ fontSize: 34 }}>✉️</Txt>
           </View>
           <Txt variant="title" style={{ marginTop: space.xl, textAlign: 'center' }}>
@@ -114,14 +115,25 @@ export default function SignUp() {
     && agreed && agreedContent && agreedAge && !busy
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+    <AuthBackdrop>
+    <SafeAreaView style={{ flex: 1 }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Txt variant="display">アカウント作成</Txt>
-          <Txt variant="body" tone="muted" style={{ marginTop: space.xs, marginBottom: space.xl }}>
+          <AuthBrand caption="はじめの一軒を、登録するところから。" />
+
+          {/* 入力はまとめて紙に載せ、背景の写真から切り離す */}
+          <View
+            style={[
+              styles.card,
+              shadow.float,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+          <Txt variant="title">アカウント作成</Txt>
+          <Txt variant="small" tone="muted" style={{ marginTop: space.xs, marginBottom: space.lg }}>
             アカウント名がアプリ上の表示名になります。
           </Txt>
 
@@ -241,18 +253,22 @@ export default function SignUp() {
 
             <Button title="登録する" onPress={submit} loading={busy} disabled={!canSubmit} />
           </View>
+          </View>
 
           <View style={styles.footer}>
-            <Txt variant="small" tone="muted">すでにアカウントをお持ちですか？</Txt>
+            <Txt variant="small" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              すでにアカウントをお持ちですか？
+            </Txt>
             <Link href="/(auth)/sign-in" asChild>
               <Pressable hitSlop={8}>
-                <Txt variant="smallMed" tone="accent">ログイン</Txt>
+                <Txt variant="smallMed" style={{ color: '#FFFFFF' }}>ログイン</Txt>
               </Pressable>
             </Link>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </AuthBackdrop>
   )
 }
 
@@ -284,8 +300,14 @@ function Check({
 
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, padding: space.xl, paddingTop: space.xxl },
+  card: {
+    marginTop: space.xl,
+    padding: space.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
   confirm: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl },
-  mark: {
+  emailMark: {
     width: 76, height: 76, borderRadius: radius.xl,
     alignItems: 'center', justifyContent: 'center',
   },

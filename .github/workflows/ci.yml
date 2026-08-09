@@ -39,6 +39,12 @@ jobs:
       - name: Region data in sync
         run: npm run check:regions
 
+      # 移行SQLは SQL Editor に人が貼って実行するので、
+      # 構文エラーは本番で初めて分かる。PostgreSQL 本物のパーサに
+      # 通して、貼る前に落とす（実行はしないので副作用は無い）。
+      - name: SQL syntax
+        run: npm run check:sql
+
   # モバイル（Expo）は独立した npm プロジェクト。
   # ネイティブビルドは EAS 側に任せ、ここでは型チェックのみ回す。
   mobile:
@@ -61,3 +67,10 @@ jobs:
 
       - name: Type check
         run: npm run typecheck
+
+      # 型チェックは Babel も Metro も通らないため、バンドルできない状態を
+      # 検出できない。実際 babel-preset-expo が devDependencies から抜けていて、
+      # CI は緑のまま「実機で起動すると必ず落ちる」状態が続いていた。
+      # ここで一度バンドルまで通し、同じ抜けが再発したら止める。
+      - name: Bundle (Metro)
+        run: npx expo export --platform ios --output-dir /tmp/expo-export

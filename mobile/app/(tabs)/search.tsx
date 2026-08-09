@@ -8,12 +8,13 @@ import { Ionicons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import {
-  useTheme, space, radius, GENRE_EMOJI, SITUATIONS, SITUATION_EMOJI,
+  useTheme, space, radius, GENRE_EMOJI,
 } from '../../src/theme'
 import { Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
+import { isFeatured } from '../../src/lib/impressions'
 
 type Tab = 'posts' | 'accounts'
 
@@ -24,7 +25,6 @@ export default function Search() {
 
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<Tab>('posts')
-  const [situation, setSituation] = useState<string | null>(null)
 
   const [discover, setDiscover] = useState<Post[]>([])
   const [postResults, setPostResults] = useState<Post[]>([])
@@ -105,11 +105,7 @@ export default function Search() {
   }, [loadDiscover])
 
   const isSearching = query.trim().length > 0
-  const basePosts = isSearching ? postResults : discover
-  // シチュエーションは取得済みの結果に対して絞り込む（追加の通信をしない）
-  const posts = situation
-    ? basePosts.filter((p) => (p.situations ?? []).includes(situation))
-    : basePosts
+  const posts = isSearching ? postResults : discover
 
   /* ─────────────────────────  描画  ───────────────────────── */
 
@@ -142,7 +138,9 @@ export default function Search() {
       }
       renderItem={({ item }) => (
         <Pressable
-          onPress={() => item.author && router.push(`/user/${item.author.username}`)}
+          // 投稿を押したら投稿を開く。以前は投稿者のプロフィールに飛んでいて、
+          // 見たかった一枚に辿り着けなかった。
+          onPress={() => router.push({ pathname: '/post/[id]', params: { id: item.id } })}
           style={({ pressed }) => [
             { width: cell, height: cell, margin: 1, opacity: pressed ? 0.75 : 1 },
           ]}
@@ -167,6 +165,14 @@ export default function Search() {
           {item.images.length > 1 && (
             <View style={styles.multi}>
               <Ionicons name="copy" size={12} color="#fff" />
+            </View>
+          )}
+          {/* いま見られている投稿。写真の上なので、地の色に関わらず
+              読めるよう暗い面に白抜きで置く。 */}
+          {isFeatured(item.featured_at) && (
+            <View style={styles.featured}>
+              <Ionicons name="flame" size={10} color="#fff" />
+              <Txt style={styles.featuredText}>注目</Txt>
             </View>
           )}
         </Pressable>
@@ -255,22 +261,6 @@ export default function Search() {
       </View>
 
       {/* シチュエーション絞り込み。アカウントタブでは意味がないので出さない。 */}
-      {!(isSearching && tab === 'accounts') && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.situationRow}
-        >
-          {SITUATIONS.map((s) => (
-            <Chip
-              key={s}
-              label={`${SITUATION_EMOJI[s]} ${s}`}
-              selected={situation === s}
-              onPress={() => setSituation(situation === s ? null : s)}
-            />
-          ))}
-        </ScrollView>
-      )}
 
       {/* 検索中だけタブを出す。未検索時は発見グリッドのみ。 */}
       {isSearching && (
@@ -304,6 +294,14 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   multi: { position: 'absolute', top: 6, right: 6, opacity: 0.9 },
+  featured: {
+    position: 'absolute', left: 5, bottom: 5,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(20,17,15,0.72)',
+  },
+  featuredText: { color: '#fff', fontSize: 9, letterSpacing: 0.8 },
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',

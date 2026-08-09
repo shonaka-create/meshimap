@@ -300,6 +300,119 @@ export const AREAS: readonly Area[] = [
   { name: '石垣島', prefId: 'okinawa', center: [24.3414, 124.156], zoom: 13 },
   { name: '宮古島', prefId: 'okinawa', center: [24.7972, 125.2917], zoom: 13 },
   { name: '名護', prefId: 'okinawa', center: [26.5917, 127.9717], zoom: 14 },
+
+  // ============================================================
+  // 追加分（2026-08）
+  //
+  // 当初は東京55件に対して大半の県が2件で、地方の投稿が
+  // 「県庁所在地」か「最寄り8km圏なし」に潰れていた。
+  // 政令指定都市の区と、県内で二番手・三番手の街を足して解像度を上げる。
+  //
+  // 地図に出るバブルは post_counts_by_region が返す
+  // 「投稿があるエリア」だけなので、ここを増やしても画面は混まない。
+  // 増えるのは分類の細かさだけ。
+  //
+  // 座標は街の中心（主要駅前）のおおよその位置。
+  // 判定は最寄り8km圏で行うため、数百m単位の誤差は結果に影響しない。
+  // ============================================================
+
+  // ── 北海道・東北 ─────────────────────────────
+  { name: '苫小牧', prefId: 'hokkaido', center: [42.6341, 141.6055], zoom: 14 },
+  { name: '釧路', prefId: 'hokkaido', center: [42.9849, 144.3820], zoom: 14 },
+  { name: '仙台一番町', prefId: 'miyagi', center: [38.2622, 140.8721], zoom: 15 },
+  { name: '仙台泉中央', prefId: 'miyagi', center: [38.3260, 140.8817], zoom: 14 },
+  { name: '石巻', prefId: 'miyagi', center: [38.4345, 141.3029], zoom: 14 },
+  { name: '花巻', prefId: 'iwate', center: [39.3886, 141.1163], zoom: 14 },
+  { name: '大館', prefId: 'akita', center: [40.2716, 140.5644], zoom: 14 },
+  { name: '鶴岡', prefId: 'yamagata', center: [38.7272, 139.8266], zoom: 14 },
+  { name: '白河', prefId: 'fukushima', center: [37.1264, 140.2110], zoom: 14 },
+
+  // ── 関東 ─────────────────────────────────
+  { name: 'さいたま新都心', prefId: 'saitama', center: [35.8942, 139.6317], zoom: 15 },
+  { name: '川口', prefId: 'saitama', center: [35.8074, 139.7207], zoom: 14 },
+  { name: '草加', prefId: 'saitama', center: [35.8256, 139.8054], zoom: 14 },
+  { name: '海浜幕張', prefId: 'chiba', center: [35.6484, 140.0348], zoom: 15 },
+  { name: '津田沼', prefId: 'chiba', center: [35.6913, 140.0207], zoom: 14 },
+  { name: '市川', prefId: 'chiba', center: [35.7220, 139.9310], zoom: 14 },
+  { name: '土浦', prefId: 'ibaraki', center: [36.0784, 140.2043], zoom: 14 },
+  { name: '足利', prefId: 'tochigi', center: [36.3300, 139.4499], zoom: 14 },
+  { name: '太田', prefId: 'gunma', center: [36.2913, 139.3756], zoom: 14 },
+
+  // ── 東京（23区で手薄だったところ） ──────────────
+  { name: '門前仲町', prefId: 'tokyo', center: [35.6717, 139.7967], zoom: 15 },
+  { name: '清澄白河', prefId: 'tokyo', center: [35.6819, 139.7996], zoom: 15 },
+  { name: '人形町', prefId: 'tokyo', center: [35.6862, 139.7827], zoom: 15 },
+  { name: '築地', prefId: 'tokyo', center: [35.6654, 139.7707], zoom: 15 },
+  { name: '虎ノ門', prefId: 'tokyo', center: [35.6668, 139.7496], zoom: 15 },
+  { name: '西荻窪', prefId: 'tokyo', center: [35.7036, 139.5993], zoom: 15 },
+  { name: '阿佐ヶ谷', prefId: 'tokyo', center: [35.7047, 139.6359], zoom: 15 },
+  { name: '祐天寺', prefId: 'tokyo', center: [35.6371, 139.6942], zoom: 15 },
+  { name: '学芸大学', prefId: 'tokyo', center: [35.6284, 139.6852], zoom: 15 },
+  { name: '駒沢', prefId: 'tokyo', center: [35.6265, 139.6608], zoom: 15 },
+  { name: '成城学園前', prefId: 'tokyo', center: [35.6404, 139.5989], zoom: 15 },
+  { name: '大塚', prefId: 'tokyo', center: [35.7314, 139.7285], zoom: 15 },
+  { name: '王子', prefId: 'tokyo', center: [35.7527, 139.7383], zoom: 15 },
+  { name: '亀戸', prefId: 'tokyo', center: [35.6976, 139.8266], zoom: 15 },
+  { name: '葛西', prefId: 'tokyo', center: [35.6636, 139.8716], zoom: 14 },
+  { name: '三鷹', prefId: 'tokyo', center: [35.7027, 139.5606], zoom: 14 },
+  { name: '府中', prefId: 'tokyo', center: [35.6688, 139.4779], zoom: 14 },
+
+  // ── 神奈川 ───────────────────────────────
+  { name: '桜木町', prefId: 'kanagawa', center: [35.4510, 139.6317], zoom: 15 },
+  { name: '青葉台', prefId: 'kanagawa', center: [35.5442, 139.5175], zoom: 14 },
+  { name: '大船', prefId: 'kanagawa', center: [35.3540, 139.5310], zoom: 14 },
+
+  // ── 中部 ─────────────────────────────────
+  { name: '長岡駅前', prefId: 'niigata', center: [37.4467, 138.8517], zoom: 15 },
+  { name: '高岡駅前', prefId: 'toyama', center: [36.7407, 137.0155], zoom: 15 },
+  { name: '小松', prefId: 'ishikawa', center: [36.4021, 136.4497], zoom: 14 },
+  { name: '鯖江', prefId: 'fukui', center: [35.9432, 136.1846], zoom: 14 },
+  { name: '甲府駅前', prefId: 'yamanashi', center: [35.6664, 138.5686], zoom: 15 },
+  { name: '上田', prefId: 'nagano', center: [36.4021, 138.2493], zoom: 14 },
+  { name: '諏訪', prefId: 'nagano', center: [36.0392, 138.1140], zoom: 14 },
+  { name: '各務原', prefId: 'gifu', center: [35.3990, 136.8484], zoom: 14 },
+  { name: '沼津', prefId: 'shizuoka', center: [35.1013, 138.8635], zoom: 14 },
+  { name: '三島', prefId: 'shizuoka', center: [35.1265, 138.9109], zoom: 14 },
+  { name: '名古屋千種', prefId: 'aichi', center: [35.1706, 136.9309], zoom: 15 },
+  { name: '刈谷', prefId: 'aichi', center: [34.9895, 137.0028], zoom: 14 },
+  { name: '桑名', prefId: 'mie', center: [35.0620, 136.6838], zoom: 14 },
+
+  // ── 近畿 ─────────────────────────────────
+  { name: '守山', prefId: 'shiga', center: [35.0587, 135.9930], zoom: 14 },
+  { name: '烏丸御池', prefId: 'kyoto', center: [35.0100, 135.7597], zoom: 15 },
+  { name: '北野白梅町', prefId: 'kyoto', center: [35.0292, 135.7351], zoom: 15 },
+  { name: '天満', prefId: 'osaka', center: [34.7053, 135.5124], zoom: 15 },
+  { name: '本町', prefId: 'osaka', center: [34.6825, 135.4996], zoom: 15 },
+  { name: '阿倍野', prefId: 'osaka', center: [34.6395, 135.5133], zoom: 15 },
+  { name: '豊中', prefId: 'osaka', center: [34.7815, 135.4696], zoom: 14 },
+  { name: '神戸北野', prefId: 'hyogo', center: [34.6970, 135.1893], zoom: 15 },
+  { name: '芦屋', prefId: 'hyogo', center: [34.7276, 135.3033], zoom: 14 },
+  { name: '生駒', prefId: 'nara', center: [34.6852, 135.7003], zoom: 14 },
+  { name: '田辺', prefId: 'wakayama', center: [33.7297, 135.3780], zoom: 14 },
+
+  // ── 中国・四国 ───────────────────────────
+  { name: '倉吉', prefId: 'tottori', center: [35.4300, 133.8256], zoom: 14 },
+  { name: '浜田', prefId: 'shimane', center: [34.8996, 132.0800], zoom: 14 },
+  { name: '津山', prefId: 'okayama', center: [35.0692, 134.0043], zoom: 14 },
+  { name: '広島紙屋町', prefId: 'hiroshima', center: [34.3963, 132.4568], zoom: 15 },
+  { name: '呉', prefId: 'hiroshima', center: [34.2492, 132.5657], zoom: 14 },
+  { name: '岩国', prefId: 'yamaguchi', center: [34.1668, 132.2196], zoom: 14 },
+  { name: '阿南', prefId: 'tokushima', center: [33.9223, 134.6595], zoom: 14 },
+  { name: '坂出', prefId: 'kagawa', center: [34.3163, 133.8600], zoom: 14 },
+  { name: '新居浜', prefId: 'ehime', center: [33.9603, 133.2833], zoom: 14 },
+  { name: '南国', prefId: 'kochi', center: [33.5750, 133.6410], zoom: 14 },
+
+  // ── 九州・沖縄 ───────────────────────────
+  { name: '福岡今泉', prefId: 'fukuoka', center: [33.5842, 130.3955], zoom: 15 },
+  { name: '福岡長浜', prefId: 'fukuoka', center: [33.5975, 130.3899], zoom: 15 },
+  { name: '飯塚', prefId: 'fukuoka', center: [33.6456, 130.6912], zoom: 14 },
+  { name: '鳥栖', prefId: 'saga', center: [33.3778, 130.5063], zoom: 14 },
+  { name: '諫早', prefId: 'nagasaki', center: [32.8442, 130.0533], zoom: 14 },
+  { name: '八代', prefId: 'kumamoto', center: [32.5074, 130.6018], zoom: 14 },
+  { name: '中津', prefId: 'oita', center: [33.5983, 131.1883], zoom: 14 },
+  { name: '都城', prefId: 'miyazaki', center: [31.7217, 131.0614], zoom: 14 },
+  { name: '鹿児島中央', prefId: 'kagoshima', center: [31.5834, 130.5419], zoom: 15 },
+  { name: '北谷', prefId: 'okinawa', center: [26.3164, 127.7592], zoom: 14 },
 ] as const
 
 export const PREFECTURE_BY_ID: Record<string, Prefecture> = Object.fromEntries(

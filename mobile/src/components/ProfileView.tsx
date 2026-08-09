@@ -13,6 +13,10 @@ import { ReportDialog } from './ReportDialog'
 import { RankAvatar, RankBadge } from './RankAvatar'
 import { AvatarEmojiPicker } from './AvatarEmojiPicker'
 import { nextRank, progressToNext, rankOf, remainingToNext } from '../lib/rank'
+import {
+  formatImpressions, isFeatured, monthlyTierOf, nextMonthlyTier,
+  type MonthlyStanding,
+} from '../lib/impressions'
 import { FREE_FOLLOW_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
@@ -38,6 +42,8 @@ export function ProfileView({ username, selfId }: Props) {
   const [reporting, setReporting] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [pickingEmoji, setPickingEmoji] = useState(false)
+  /** 今月の成績。月初にゼロへ戻るので、通算のランクとは別に持つ */
+  const [standing, setStanding] = useState<MonthlyStanding | null>(null)
 
   const isOwn = !!selfId || (!!profile && profile.id === user?.id)
   const cell = (width - 4) / 3
@@ -74,6 +80,13 @@ export function ProfileView({ username, selfId }: Props) {
         .maybeSingle()
       setFollowStatus((f?.status as FollowStatus) ?? null)
     }
+
+    // 今月の成績。順位を出すのに他人の集計を読むので RPC 側で閉じている。
+    // 移行 0008 を流す前は関数が無いので、失敗しても黙って畳む。
+    const { data: st, error: stErr } = await supabase
+      .rpc('monthly_standing', { p_user: prof.id })
+      .maybeSingle()
+    setStanding(stErr ? null : ((st as MonthlyStanding | null) ?? null))
 
     // 投稿。非公開アカウントかつ未フォローなら RLS で 0 件になる。
     const { data: rows } = await supabase
@@ -210,6 +223,9 @@ export function ProfileView({ username, selfId }: Props) {
   const progress = progressToNext(profile.posts_count, profile.areas_count, rank, next)
   const remaining = remainingToNext(profile.posts_count, profile.areas_count, next)
 
+  const monthlyTier = monthlyTierOf(standing?.impressions ?? 0)
+  const monthlyNext = nextMonthlyTier(monthlyTier)
+
   /** 絵柄の保存。未解放のものはDBのトリガーが NULL に戻すので、結果を読み直す。 */
   const saveEmoji = async (emoji: string | null) => {
     if (!user) return
@@ -280,6 +296,50 @@ export function ProfileView({ username, selfId }: Props) {
           <Txt variant="body" tone="muted" style={{ marginTop: space.sm }}>{profile.bio}</Txt>
         )}
       </View>
+
+      {/* ── 今月のランク ───────────────────────────
+        * 通算のランク（投稿数×エリア数）とは別の軸。
+        * 通算だけだと先に始めた人が上に居座り続けて、
+        * 後から入った人に追いつく道が無くなる。
+        * こちらは毎月ゼロに戻るので、今月やった人が今月出る。
+        *
+        * 他人のページでは、まだ届いていない月は出さない
+        * （0件の段位を突きつけても何も生まない）。
+        */}
+      {standing && (isOwn || standing.impressions > 0) && (
+        <View style={[styles.monthBox, { backgroundColor: colors.surfaceAlt }]}>
+          <View style={styles.rankBoxTop}>
+            <View style={styles.monthTitle}>
+              <View style={[styles.monthDot, { backgroundColor: monthlyTier.color }]} />
+              <Txt variant="smallMed">今月のランク · {monthlyTier.name}</Txt>
+            </View>
+            {standing.rank_position != null && (
+              <Txt variant="caption" tone="faint">
+                {standing.entrants}人中 {standing.rank_position}位
+              </Txt>
+            )}
+          </View>
+
+          <View style={styles.monthTitle}>
+            <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+            <Txt variant="small" tone="muted">
+              今月 {formatImpressions(standing.impressions)} 回表示
+              {profile.impressions_count > 0 && ` · 通算 ${formatImpressions(profile.impressions_count)} 回`}
+            </Txt>
+          </View>
+
+          {isOwn && (
+            <Txt variant="caption" tone="faint">
+              {monthlyNext
+                ? `${monthlyNext.name}まで あと${formatImpressions(
+                    monthlyNext.impressions - standing.impressions
+                  )}回`
+                : '今月の最上位です'}
+              {' '}· 表示回数は「公開した投稿を自分以外が開いた数」で、同じ人は1日1回まで数えます
+            </Txt>
+          )}
+        </View>
+      )}
 
       {/* ── 次のランクまで（自分のページだけ） ─────────────
         * 進捗だけ見せても動けないので、
@@ -402,7 +462,15 @@ export function ProfileView({ username, selfId }: Props) {
           )
         }
         renderItem={({ item }) => (
-          <View style={{ width: cell, height: cell, margin: 1 }}>
+          // プロフィールの写真からも投稿を開けるようにする。
+          // 中の鍵バッジは自分の投稿だけに出る別の Pressable で、
+          // そちらを押したときは公開切り替えが優先される。
+          <Pressable
+            onPress={() => router.push({ pathname: '/post/[id]', params: { id: item.id } })}
+            style={({ pressed }) => [
+              { width: cell, height: cell, margin: 1, opacity: pressed ? 0.75 : 1 },
+            ]}
+          >
             {item.images[0] ? (
               <Image
                 source={{ uri: item.images[0] }}
@@ -418,6 +486,13 @@ export function ProfileView({ username, selfId }: Props) {
                 ]}
               >
                 <Txt style={{ fontSize: 24 }}>{GENRE_EMOJI[item.genre] ?? '🍴'}</Txt>
+              </View>
+            )}
+
+            {isFeatured(item.featured_at) && (
+              <View style={styles.featured}>
+                <Ionicons name="flame" size={10} color="#fff" />
+                <Txt style={styles.featuredText}>注目</Txt>
               </View>
             )}
 
@@ -441,7 +516,7 @@ export function ProfileView({ username, selfId }: Props) {
                 />
               </Pressable>
             )}
-          </View>
+          </Pressable>
         )}
       />
 
@@ -501,6 +576,20 @@ const styles = StyleSheet.create({
     marginHorizontal: space.lg, marginTop: space.lg,
     padding: space.md, borderRadius: radius.md, gap: space.sm,
   },
+  monthBox: {
+    marginHorizontal: space.lg, marginTop: space.lg,
+    padding: space.md, borderRadius: radius.md, gap: space.xs,
+  },
+  monthTitle: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  monthDot: { width: 8, height: 8, borderRadius: 4 },
+  featured: {
+    position: 'absolute', left: 5, bottom: 5,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(20,17,15,0.72)',
+  },
+  featuredText: { color: '#fff', fontSize: 9, letterSpacing: 0.8 },
   rankBoxTop: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },

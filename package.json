@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "check:regions": "node scripts/check-regions-sync.mjs",
     "seed": "node scripts/seed.mjs",
-    "backfill:regions": "node scripts/backfill-regions.mjs"
+    "backfill:regions": "node scripts/backfill-regions.mjs",
+    "check:sql": "node scripts/check-sql.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
@@ -31,6 +32,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
+    "pg-query-emscripten": "^5.1.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

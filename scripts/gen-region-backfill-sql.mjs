@@ -35,7 +35,13 @@ const rows = AREAS.map((a, i) => {
   const pref = PREFECTURE_BY_ID[a.prefId]
   if (!pref) throw new Error(`エリア「${a.name}」の prefId「${a.prefId}」が PREFECTURES にありません`)
   // ord は同距離のときの優先順。JS の nearestArea は配列の先頭を勝たせるので揃える。
-  return `  (${i}, ${q(a.name)}, ${q(pref.name)}, ${a.center[0]}, ${a.center[1]})`
+  //
+  // 先頭行だけ型を明示する。VALUES の列の型は最初の行から決まるので、
+  // ここで指定しないと座標が numeric になり、radians(numeric) が無くて落ちる。
+  const cast = i === 0 ? '::double precision' : ''
+  const tcast = i === 0 ? '::text' : ''
+  return `    (${i}, ${q(a.name)}${tcast}, ${q(pref.name)}${tcast},`
+    + ` ${a.center[0]}${cast}, ${a.center[1]}${cast})`
 }).join(',\n')
 
 const sql = `-- ============================================================
@@ -66,20 +72,20 @@ const sql = `-- ============================================================
 
 BEGIN;
 
-CREATE TEMP TABLE _areas (
-  ord  INT,
-  name TEXT,
-  pref TEXT,
-  lat  DOUBLE PRECISION,
-  lng  DOUBLE PRECISION
-) ON COMMIT DROP;
-
-INSERT INTO _areas (ord, name, pref, lat, lng) VALUES
-${rows};
-
+-- エリア表は CTE で持つ。
+--
+-- ★ 一時表（CREATE TEMP TABLE）にしてはいけない。
+--   Supabase の SQL Editor は接続を使い回すため、
+--   文をまたぐと別のセッションに当たって
+--   「relation "_areas" does not exist」で落ちる。
+--   CTE なら1文で完結するので、その影響を受けない。
+WITH areas (ord, name, pref, lat, lng) AS (
+  VALUES
+${rows}
+),
 -- 投稿ごとに最寄りエリアを1件だけ選ぶ。
 -- 距離が同じときは ord の小さい方（= lib/regions.ts の配列で先に出る方）を採る。
-WITH nearest AS (
+nearest AS (
   SELECT DISTINCT ON (p.id)
     p.id,
     a.name AS area,
@@ -90,7 +96,7 @@ WITH nearest AS (
       power(sin(radians(a.lng - p.location_lng) / 2), 2)
     )) AS meters
   FROM posts p
-  CROSS JOIN _areas a
+  CROSS JOIN areas a
   WHERE p.prefecture IS NULL
     AND p.location_lat IS NOT NULL
     AND p.location_lng IS NOT NULL

@@ -39,7 +39,15 @@ export default function EditProfile() {
   // ユーザーIDを変えたときだけ空き確認する
   const seq = useRef(0)
   useEffect(() => {
-    if (!usernameChanged || usernameError) { setUsernameTaken(false); return }
+    // ★ ここで checking を落とさないと、保存ボタンが二度と押せなくなる。
+    //   ユーザーIDを触ってから元の値に戻すと usernameChanged が false になり
+    //   この早期 return に入るが、直前に立てた checking が true のまま残るため、
+    //   disabled={... || checking} が永久に真になっていた。
+    if (!usernameChanged || usernameError) {
+      setUsernameTaken(false)
+      setChecking(false)
+      return
+    }
     setChecking(true)
     const mine = ++seq.current
     const t = setTimeout(async () => {

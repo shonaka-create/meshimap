@@ -26,8 +26,11 @@
 | 4 | `supabase/migrations/0003_admin.sql` | 運営（管理者）アカウントと通報の審査 |
 | 5 | `supabase/migrations/0004_ranks_and_map_pins.sql` | ランク・アバター絵柄・地図のアイコン |
 | 6 | `supabase/migrations/0005_admin_pin_and_follow_limit.sql` | 運営アカウントの常時表示とフォロー上限（無料2人） |
+| 7 | `supabase/migrations/0006_repair_counters.sql` | 手動更新時代にズレたカウンタの数え直し |
+| 8 | `supabase/migrations/0007_backfill_post_regions.sql` | 既存投稿への都道府県・エリアの後埋め |
+| 9 | `supabase/migrations/0008_impressions_featured_monthly.sql` | 表示回数・注目フラグ・月間ランク |
 
-> ⚠ **6 まで必ず実行してください。**
+> ⚠ **9 まで必ず実行してください。**
 > `schema.sql` は開発初期のテーブル定義で、そこで止めると `username`・公開設定・
 > 地域列・ランク列・ブロック/通報・各 RPC が存在せず、登録も地図も動きません。
 > さらに `schema.sql` の RLS は `USING (true)`（全員が読める）のままなので、
@@ -73,6 +76,33 @@
 - `map_pins()` … 自分とフォロー中の人の**最後に投稿したお店**を返す。
   **現在地は保存も共有もしない。** 位置情報を持たないので、
   「位置情報を常時取得するアプリ」としての審査対象にならない
+
+`0006` / `0007` が行うこと:
+
+- `0006` … カウンタを手動 UPDATE していた頃にズレた
+  `posts_count` / `likes_count` / `comments_count` / フォロー数を数え直す
+- `0007` … `prefecture` が空のまま入っている既存投稿に、
+  座標から最寄り（8km以内）のエリアを後埋めする。
+  `mobile/src/lib/regions.ts` から
+  `node scripts/gen-region-backfill-sql.mjs` で生成しているので、
+  **エリアを増やしたら生成し直して流す**（すでに埋まっている投稿は対象外）
+
+`0008` が行うこと（表示回数・注目・月間ランク）:
+
+- `posts.impressions_count` … **公開投稿を、投稿者以外が開いた数**。
+  同じ人・同じ投稿は**1日1回**しか数えない。
+  リロードで伸ばせる数字は指標ではなく操作対象になってしまうため、
+  「何回開かれたか」ではなく「何人に届いたか」を数えている
+- `post_impressions` … 誰が見たかの記録。
+  **RLS を有効にしてポリシーを1つも作らない**ので誰も直接読めない。
+  書き込みも `record_impression()` を通したときだけ通る
+  （閲覧履歴は、見せて得られるものより失うものが大きい）
+- `posts.featured_at` … 直近7日の閲覧が20人以上の間だけ更新され続ける。
+  閲覧が止まれば更新も止まり、期間が過ぎると自然に「注目」から外れる
+  （期限切れを掃除する仕組みが要らない）
+- `profile_monthly_impressions` + `monthly_tier()` … 月ごとに入れ替わるランク。
+  通算で決めると先に始めた人が居座り続けて後発が追いつけないので、
+  **毎月ゼロから**数え直す。しきい値は `mobile/src/lib/impressions.ts` と対で管理
 
 ### 1-2. Authentication
 

@@ -16,6 +16,8 @@ export interface Profile {
   posts_count: number
   /** 制覇したエリア数。ランクの判定に使う。トリガーが維持する */
   areas_count: number
+  /** 自分の投稿が通算で何回表示されたか。月間ランクは monthly_standing で別に引く */
+  impressions_count: number
   /** 選択中のアバター絵柄。ランクで解放される。null なら photo_url を使う */
   avatar_emoji: string | null
   created_at: string
@@ -63,6 +65,13 @@ export interface Post {
   hashtags: string[]
   likes_count: number
   comments_count: number
+  /** 表示回数。1人1日1回、投稿者以外の閲覧だけを数える */
+  impressions_count: number
+  /**
+   * 直近でよく見られている間だけDBが更新し続ける時刻。
+   * 「注目」かどうかの判定は isFeatured() を使う（期限が入るため）。
+   */
+  featured_at: string | null
   created_at: string
   /** 結合で載る */
   author?: Pick<Profile, 'id' | 'username' | 'display_name' | 'photo_url'>

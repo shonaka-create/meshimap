@@ -79,6 +79,22 @@ if (ADMIN_PASSWORD === PASSWORD) {
   console.warn('   SEED_ADMIN_PASSWORD を別途指定することを推奨します。\n')
 }
 
+/**
+ * デモアカウントのメールアドレスの作り方。
+ *
+ * 以前は example.com を直書きしていたが、Supabase(GoTrue) が
+ * example.com を「偽ドメイン」として拒否するようになり、
+ * `Email address "taro@example.com" is invalid` で全滅するようになった。
+ *
+ * 環境ごとに通るドメインが違う（MXレコードを見る設定もある）ので、
+ * .env.local の SEED_EMAIL_TEMPLATE で差し替えられるようにする。
+ * `{u}` が username に置き換わる。
+ *   例: 'meshimap+{u}@gmail.com'  … 実在アドレスの + 別名。確実に通る
+ *       '{u}@meshimap.app'        … 自前ドメインがあるならこちら
+ */
+const EMAIL_TEMPLATE = process.env.SEED_EMAIL_TEMPLATE || '{u}@example.com'
+const emailFor = (username) => EMAIL_TEMPLATE.replace('{u}', username)
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ============================================================
@@ -88,8 +104,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 //   このスクリプトの後に SQL Editor で付与する。
 // ============================================================
 const ADMIN = {
-  email: 'admin@example.com', // ← 運用で実際に受信できるアドレスに変えること
   username: 'admin',
+  // 運営だけは実運用で受信できるアドレスにしたいことが多いので個別に上書きできる。
+  // 既に運営アカウントがある環境では、その既存アドレスを指定すること。
+  // 違うアドレスを渡すと username 'admin' が衝突し、トリガーが別名を採番して
+  // 「二人目の運営」ができてしまう。
+  email: process.env.SEED_ADMIN_EMAIL || emailFor('admin'),
   displayName: 'MeshiMap 運営',
   bio: '📮 MeshiMap 運営アカウントです。通報の確認・お問い合わせ対応を行っています。',
   avatarImg: 60,
@@ -99,53 +119,77 @@ const ADMIN = {
 // アカウント
 //   username: 小文字英字のみ3〜20文字（DBの CHECK 制約）。一意。
 //   displayName: アプリ上の表示名。重複可。
-//   メールは example.com（文書用に予約されたドメイン）。
-//   実在しないので、確認メールが誰かに届く事故が起きない。
+//   メールは username から SEED_EMAIL_TEMPLATE で組み立てる（上の emailFor）。
 // ============================================================
-const USERS = [
+const ALL_USERS = [
   {
-    email: 'taro@example.com',
     username: 'taro',
+    email: emailFor('taro'),
     displayName: '田中太郎',
     bio: '🍜 ラーメン命！東京のラーメン屋を食べ歩き中。週3回はラーメン食べてます',
     avatarImg: 11, // pravatar の img 番号
   },
   {
-    email: 'hanako@example.com',
     username: 'hanako',
+    email: emailFor('hanako'),
     displayName: '佐藤花子',
     bio: '☕ カフェ・スイーツ大好き女子。おしゃれで美味しいお店を発信中✨ フォロバします',
     avatarImg: 5,
   },
   {
-    email: 'kenji@example.com',
     username: 'kenji',
+    email: emailFor('kenji'),
     displayName: '鈴木健二',
     bio: '🥩 肉食系グルメリスト。焼肉・ステーキ・フレンチまで、ちょっといい食事が好き',
     avatarImg: 33,
   },
   {
-    email: 'yuki@example.com',
     username: 'yuki',
+    email: emailFor('yuki'),
     displayName: '伊藤由紀',
     bio: '🍣 和食愛好家。寿司・天ぷら・懐石を中心に、日本の食文化を伝えていきたい',
     avatarImg: 20,
   },
   {
-    email: 'yamada@example.com',
     username: 'yamada',
+    email: emailFor('yamada'),
     displayName: '山田翔太',
     bio: '🌏 アジアン料理探求家。韓国・中国・タイ・ベトナム料理を東京で食べ歩き！',
     avatarImg: 44,
   },
   {
-    email: 'ebisu@example.com',
     username: 'ebisu',
+    email: emailFor('ebisu'),
     displayName: 'えびちゃん',
     bio: '🍽️ 恵比寿・中目黒エリアのグルメを中心に食べ歩き。美味しいお店を発信中！',
     avatarImg: 68,
   },
 ]
+
+/**
+ * 実際に作るアカウント。
+ *
+ * 既定は全6件だが、Supabase のメール送信レート制限に当たる環境や、
+ * 「1件だけ見られればいい」ときのために SEED_USERS で絞れるようにする。
+ *   例: SEED_USERS='taro'          … taro だけ
+ *       SEED_USERS='taro,hanako'   … 2件
+ *
+ * 絞った場合、フォロー・いいね・コメントは
+ * 「作った人どうし」の範囲でしか作られない（1件ならどれも作られない）。
+ */
+const USERS = (() => {
+  const want = (process.env.SEED_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (!want.length) return ALL_USERS
+
+  const known = new Set(ALL_USERS.map((u) => u.username))
+  const unknown = want.filter((w) => !known.has(w))
+  if (unknown.length) {
+    console.error(`❌ SEED_USERS に知らない username があります: ${unknown.join(', ')}`)
+    console.error(`   選べるのは: ${[...known].join(', ')}`)
+    process.exit(1)
+  }
+  return ALL_USERS.filter((u) => want.includes(u.username))
+})()
 
 // ============================================================
 // 投稿
@@ -158,77 +202,77 @@ const USERS = [
 const POSTS_BY_USER = {
   taro: [
     {
-      caption: '渋谷の路地裏で見つけた煮干し系ラーメン🍜 スープが濃厚すぎてやばい。チャーシューも分厚くて大満足でした！また絶対来る',
+      caption: '高円寺の路地の煮干し中華そば🍜 券売機ひとつ、席は7つだけ。無化調でスープが澄んでいて、最後まで飽きずに飲み干した。こういう店に出会いたくて歩いてる',
       rating: 5,
       genre: 'ラーメン',
-      price_range: '¥1,001〜¥3,000',
-      location_name: '一蘭 渋谷店',
-      location_lat: 35.6583,
-      location_lng: 139.698,
+      price_range: '〜¥1,000',
+      location_name: '中華そば 亀井',
+      location_lat: 35.7048,
+      location_lng: 139.6512,
       prefecture: '東京都',
-      area: '渋谷',
+      area: '高円寺',
       situations: ['一人ランチにおすすめ'],
-      hashtags: ['ラーメン', '渋谷グルメ', '煮干し', '東京ラーメン'],
+      hashtags: ['ラーメン', '高円寺', '煮干し', '無化調'],
       images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800'],
       daysAgo: 0.5,
     },
     {
-      caption: '池袋の二郎系ラーメン🍜 野菜マシマシにんにく増しで注文！ボリューム満点すぎて後悔したけど完食。二郎系はやっぱり最高',
-      rating: 4,
-      genre: 'ラーメン',
-      price_range: '¥1,001〜¥3,000',
-      location_name: '豚山 池袋東口店',
-      location_lat: 35.7294,
-      location_lng: 139.711,
-      prefecture: '東京都',
-      area: '池袋',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['二郎系', '池袋グルメ', 'ラーメン', 'がっつり'],
-      images: ['https://images.unsplash.com/photo-1557872943-16a5ac26437e?w=800'],
-      daysAgo: 2,
-    },
-    {
-      caption: '新宿で食べた鶏白湯ラーメン✨ クリーミーなスープに細麺がよく絡んで絶品。夜11時まで営業してるのも最高',
+      caption: '神楽坂の坂の途中にある鶏清湯のらぁ麺。カウンター6席、ご夫婦でやっている店でした。塩加減が上品で、器まで含めて隙がない。静かに食べたい日にまた来る',
       rating: 5,
       genre: 'ラーメン',
       price_range: '¥1,001〜¥3,000',
-      location_name: '麺屋武蔵 新宿本店',
-      location_lat: 35.6912,
-      location_lng: 139.6946,
+      location_name: 'らぁ麺 依田',
+      location_lat: 35.7025,
+      location_lng: 139.7392,
       prefecture: '東京都',
-      area: '新宿',
-      situations: ['一人ランチにおすすめ', '飲み会'],
-      hashtags: ['鶏白湯', '新宿グルメ', 'ラーメン', '深夜グルメ'],
+      area: '神楽坂',
+      situations: ['一人ランチにおすすめ', 'デート'],
+      hashtags: ['ラーメン', '神楽坂', '鶏清湯', '隠れ家'],
       images: ['https://images.unsplash.com/photo-1591814468924-caf88d1232e1?w=800'],
+      daysAgo: 2,
+    },
+    {
+      caption: '三軒茶屋のつけ麺。魚介の効いた濃度高めのつけ汁に、自家製の太麺がよく絡む。麺の量が同じ値段で選べるのが個人店らしくて好き。スープ割りまで丁寧',
+      rating: 4,
+      genre: 'ラーメン',
+      price_range: '¥1,001〜¥3,000',
+      location_name: '麺処 かなで',
+      location_lat: 35.6428,
+      location_lng: 139.6702,
+      prefecture: '東京都',
+      area: '三軒茶屋',
+      situations: ['一人ランチにおすすめ'],
+      hashtags: ['つけ麺', '三軒茶屋', '自家製麺'],
+      images: ['https://images.unsplash.com/photo-1557872943-16a5ac26437e?w=800'],
       daysAgo: 5,
     },
     {
-      caption: '上野の老舗中華でチャーハン定食🍚 パラパラで香ばしくて、これぞ中華チャーハンって感じ。スープとのセットで800円はコスパ最高',
+      caption: '神保町の町中華でチャーハンと半ラーメン🍚 鍋を振る音だけが響く店内。パラパラで香ばしくて、これぞという味。セットで900円は今どき信じられない',
       rating: 4,
       genre: '中華',
       price_range: '〜¥1,000',
-      location_name: '東天紅 上野本店',
-      location_lat: 35.7141,
-      location_lng: 139.7748,
+      location_name: '中華 大興',
+      location_lat: 35.6952,
+      location_lng: 139.7561,
       prefecture: '東京都',
-      area: '上野',
+      area: '神保町',
       situations: ['ランチにおすすめ', '一人ランチにおすすめ'],
-      hashtags: ['中華', 'チャーハン', '上野グルメ', 'コスパ最高'],
+      hashtags: ['町中華', '神保町', 'チャーハン'],
       images: ['https://images.unsplash.com/photo-1512058564366-18510be2db19?w=800'],
       daysAgo: 8,
     },
     {
-      caption: '六本木のつけ麺専門店🍜 濃厚魚介豚骨のつけ汁が最高すぎ。麺は太麺で食べごたえあり。スープ割りも絶品でした',
+      caption: '中目黒の味噌ラーメン。目黒川から一本入った、看板の小さい店。生姜が香る濃いめの味噌で、寒い日にちょうどいい。店主が一人で回していて、待つ時間も含めて好き',
       rating: 5,
       genre: 'ラーメン',
       price_range: '¥1,001〜¥3,000',
-      location_name: '一風堂 六本木店',
-      location_lat: 35.663,
-      location_lng: 139.7315,
+      location_name: 'らーめん 小坂',
+      location_lat: 35.6437,
+      location_lng: 139.7004,
       prefecture: '東京都',
-      area: '六本木',
+      area: '中目黒',
       situations: ['一人ランチにおすすめ'],
-      hashtags: ['つけ麺', '六本木グルメ', '魚介豚骨', 'ラーメン'],
+      hashtags: ['味噌ラーメン', '中目黒', '個人店'],
       images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&q=90'],
       daysAgo: 12,
     },
@@ -817,6 +861,12 @@ console.log('\n👥 フォロー関係を作成中...\n')
 for (const u of USERS) {
   const me = sessions.get(u.username)
   const targets = USERS.filter((o) => o.username !== u.username).map((o) => sessions.get(o.username).id)
+  // SEED_USERS で1件だけ作った場合、相手がいないので空配列になる。
+  // 空のまま upsert に渡さない。
+  if (!targets.length) {
+    console.log(`  ⏭️  @${u.username}: フォローする相手がいません`)
+    continue
+  }
   const { error } = await me.client
     .from('follows')
     .upsert(

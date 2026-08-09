@@ -19,6 +19,9 @@ export function toPost(row: Record<string, any>): Post {
     ...(row as Post),
     hashtags: row.hashtags ?? [],
     author: row.author ?? undefined,
+    // 移行 0008 を流す前のDBでは列が無いので、無ければ 0 として扱う
+    impressions_count: row.impressions_count ?? 0,
+    featured_at: row.featured_at ?? null,
     images,
   }
 }

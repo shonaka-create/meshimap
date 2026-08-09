@@ -6,8 +6,9 @@ import { Link } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useAuth, toJapaneseAuthError } from '../../src/hooks/useAuth'
-import { useTheme, space, radius } from '../../src/theme'
+import { useTheme, space, radius, shadow } from '../../src/theme'
 import { Button, Field, Txt } from '../../src/components/ui'
+import { AuthBackdrop, AuthBrand } from '../../src/components/AuthBackdrop'
 
 export default function SignIn() {
   const { signIn } = useAuth()
@@ -33,26 +34,27 @@ export default function SignIn() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
+    <AuthBackdrop>
+      <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.brand}>
-            <View style={[styles.mark, { backgroundColor: colors.accentSoft }]}>
-              <Txt style={{ fontSize: 34 }}>🍜</Txt>
-            </View>
-            <Txt variant="display" style={{ marginTop: space.lg }}>MeshiMap</Txt>
-            <Txt variant="body" tone="muted" style={{ marginTop: space.xs }}>
-              食の記憶を、地図に残す。
-            </Txt>
-          </View>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <AuthBrand caption="食の記憶を、地図に残す。" />
 
-          <View style={{ gap: space.lg }}>
+            {/* 写真の上に浮かせる紙。ここだけ影を強くして、
+                背景から切り離して見せる */}
+            <View
+              style={[
+                styles.card,
+                shadow.float,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
             <Field
               label="メールアドレス"
               value={email}
@@ -98,34 +100,39 @@ export default function SignIn() {
               </View>
             )}
 
-            <Button
-              title="ログイン"
-              onPress={submit}
-              loading={busy}
-              disabled={!email.trim() || !password}
-            />
-          </View>
+              <Button
+                title="ログイン"
+                onPress={submit}
+                loading={busy}
+                disabled={!email.trim() || !password}
+              />
+            </View>
 
-          <View style={styles.footer}>
-            <Txt variant="small" tone="muted">アカウントをお持ちでないですか？</Txt>
-            <Link href="/(auth)/sign-up" asChild>
-              <Pressable hitSlop={8}>
-                <Txt variant="smallMed" tone="accent">新規登録</Txt>
-              </Pressable>
-            </Link>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            <View style={styles.footer}>
+              <Txt variant="small" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                アカウントをお持ちでないですか？
+              </Txt>
+              <Link href="/(auth)/sign-up" asChild>
+                <Pressable hitSlop={8}>
+                  <Txt variant="smallMed" style={{ color: '#FFFFFF' }}>新規登録</Txt>
+                </Pressable>
+              </Link>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </AuthBackdrop>
   )
 }
 
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, padding: space.xl, justifyContent: 'center' },
-  brand: { alignItems: 'center', marginBottom: space.xxxl },
-  mark: {
-    width: 76, height: 76, borderRadius: radius.xl,
-    alignItems: 'center', justifyContent: 'center',
+  card: {
+    marginTop: space.xxl,
+    padding: space.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: space.lg,
   },
   error: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,

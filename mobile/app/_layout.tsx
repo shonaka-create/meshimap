@@ -6,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthProvider, useAuth } from '../src/hooks/useAuth'
 import { useTheme } from '../src/theme'
-import { Loading } from '../src/components/ui'
+import { AppLoading } from '../src/components/AppLoading'
 
 function RootNavigator() {
   const { user, loading } = useAuth()
@@ -28,9 +28,10 @@ function RootNavigator() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <Loading label="読み込み中" />
-      </View>
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <AppLoading />
+      </>
     )
   }
 
@@ -52,6 +53,7 @@ function RootNavigator() {
           name="post/new"
           options={{ presentation: 'modal', title: '新しい投稿' }}
         />
+        <Stack.Screen name="post/[id]" options={{ title: '' }} />
         <Stack.Screen name="user/[username]" options={{ title: '' }} />
         <Stack.Screen name="settings/index" options={{ title: '設定' }} />
         <Stack.Screen name="settings/edit-profile" options={{ title: 'プロフィールを編集' }} />

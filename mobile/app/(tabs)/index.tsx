@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import MapView, { Marker, type Region } from 'react-native-maps'
+import MapView, { Marker, type MapPressEvent, type Region } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import {
-  useTheme, space, radius, shadow, GENRE_EMOJI, GENRES, SITUATIONS, SITUATION_EMOJI,
+  useTheme, space, radius, shadow, GENRE_EMOJI, GENRES,
 } from '../../src/theme'
 import { Txt, Chip } from '../../src/components/ui'
 import { useLocation } from '../../src/hooks/useLocation'
@@ -16,6 +16,8 @@ import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import { CloudTransition, type CloudTransitionHandle } from '../../src/components/CloudTransition'
+import { MapAudienceDrawer } from '../../src/components/MapAudienceDrawer'
+import { useAuth } from '../../src/hooks/useAuth'
 import { RANKS } from '../../src/lib/rank'
 
 /** 日本全体が収まる初期表示 */
@@ -39,6 +41,18 @@ const LEVEL_LABEL: Record<RegionLevel, string> = {
   area: 'エリア',
 }
 
+/**
+ * 引いたときに1階層上へ戻すしきい値（latitudeDelta）。
+ *
+ * これが無いと、階層はパンくずでしか戻せない。地図を引けば上の階層に
+ * 戻ると思って操作した人には「押せていた県や区が出てこなくなった」ように見える。
+ *
+ * ドリル時のカメラは 都道府県→エリア が 0.45、エリア→投稿 が 0.06 なので、
+ * その中間に置いて、少し引いたくらいでは戻らないようにしてある。
+ */
+const BACK_TO_AREAS_DELTA = 0.35   // 投稿ピン表示 → エリア一覧
+const BACK_TO_PREFS_DELTA = 3.0    // エリア一覧   → 都道府県一覧
+
 export default function HomeMap() {
   const { colors, isDark } = useTheme()
   const router = useRouter()
@@ -53,7 +67,6 @@ export default function HomeMap() {
   /** 投稿ピンを表示しているエリア。null なら地域バブル表示中。 */
   const [openArea, setOpenArea] = useState<string | null>(null)
   const [genre, setGenre] = useState<string>('すべて')
-  const [situation, setSituation] = useState<string | null>(null)
   const [loadingRegions, setLoadingRegions] = useState(true)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
 
@@ -61,17 +74,60 @@ export default function HomeMap() {
   const [pins, setPins] = useState<MapPin[]>([])
   const [showPins, setShowPins] = useState(true)
 
+  /**
+   * 地図に出す相手の絞り込み。
+   * null なら絞り込みなし（自分＋フォロー中の全員）。
+   * フォローが増えるほどピンが重なって読めなくなるので、
+   * フォローを外さずに「今は誰の地図を見るか」だけ切り替えられるようにする。
+   */
+  const { user } = useAuth()
+  const [audience, setAudience] = useState<string[] | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  /**
+   * こちらから動かしたカメラを、ユーザーのズーム操作と取り違えないための猶予。
+   * animateToRegion も onRegionChangeComplete を呼ぶため、これが無いと
+   * 「階層を降りた直後に、その移動自体が引く操作と判定されて戻る」ことが起きる。
+   */
+  const suppressUntil = useRef(0)
+  const flyTo = useCallback((region: Region, ms = 600) => {
+    suppressUntil.current = Date.now() + ms + 400
+    mapRef.current?.animateToRegion(region, ms)
+  }, [])
+
+  /**
+   * ピンを押した時刻。地図の onPress を無視するために使う。
+   *
+   * ★ iOS（Apple地図）では、ピンを押すと Marker の onPress と
+   *   MapView の onPress が両方呼ばれる。react-native-maps の
+   *   AIRMapManager.handleMapTap は「ピンに当たったか」を見ずに
+   *   必ず map.onPress を呼び、さらにピンの選択を通すために
+   *   tap.cancelsTouchesInView = NO にしているため。
+   *
+   *   その結果 setSelectedPost(p) → setSelectedPost(null) が
+   *   同じ tick で走り、プレビューが一度も出なかった。
+   *
+   *   Android は event.action === 'marker-press' で判別できるが、
+   *   iOS の onPress には action が入らないので時刻で弾く。
+   */
+  const markerPressedAt = useRef(0)
+  const markMarkerPress = useCallback(() => {
+    markerPressedAt.current = Date.now()
+  }, [])
+
+  /** 地図の余白を押したときだけプレビューを閉じる */
+  const onMapPress = useCallback((e: MapPressEvent) => {
+    if (e.nativeEvent?.action === 'marker-press') return   // Android
+    if (Date.now() - markerPressedAt.current < 350) return // iOS
+    setSelectedPost(null)
+  }, [])
+
   /* ── 起動時に一度だけ現在地を取りに行く ─────────────── */
   useEffect(() => {
     locate().then((c) => {
-      if (c) {
-        mapRef.current?.animateToRegion(
-          { ...c, latitudeDelta: 0.15, longitudeDelta: 0.15 },
-          800
-        )
-      }
+      if (c) flyTo({ ...c, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800)
     })
-  }, [locate])
+  }, [locate, flyTo])
 
   /* ── 階層に応じた投稿数を取得 ─────────────────────── */
   useEffect(() => {
@@ -119,11 +175,16 @@ export default function HomeMap() {
     async (prefecture: string, area: string) => {
       // area が NULL の投稿は RPC 側で city を代わりに使っているので、
       // 取得側も同じ条件（area = X または area が空で city = X）で拾う。
-      const { data, error } = await supabase
+      let q = supabase
         .from('posts')
         .select(POST_SELECT)
         .eq('prefecture', prefecture)
         .or(`area.eq.${area},and(area.is.null,city.eq.${area})`)
+
+      // 絞り込みは取得段階で効かせる。取ってから捨てると通信が無駄になる。
+      if (audience) q = q.in('user_id', audience)
+
+      const { data, error } = await q
         .order('created_at', { ascending: false })
         .limit(200)
 
@@ -134,7 +195,7 @@ export default function HomeMap() {
       setPosts((data ?? []).map(toPost))
       setOpenArea(area)
     },
-    []
+    [audience]
   )
 
   /* ── 地域バブルをタップ → 1階層下る ───────────────────
@@ -147,7 +208,7 @@ export default function HomeMap() {
       const delta = drill.level === 'prefecture' ? 0.45 : 0.06
 
       cloudRef.current?.fly(() => {
-        mapRef.current?.animateToRegion(
+        flyTo(
           {
             latitude: r.center_lat,
             longitude: r.center_lng,
@@ -165,7 +226,33 @@ export default function HomeMap() {
         }
       })
     },
-    [drill, loadPostsForArea]
+    [drill, loadPostsForArea, flyTo]
+  )
+
+  /**
+   * 地図を引いたら1階層上へ戻す。
+   * パンくずを押さなくても、地図の操作だけで行き来できるようにする。
+   */
+  const onRegionChangeComplete = useCallback(
+    (region: Region) => {
+      if (Date.now() < suppressUntil.current) return
+
+      const d = region.latitudeDelta
+
+      if (openArea !== null) {
+        if (d > BACK_TO_AREAS_DELTA) {
+          setPosts([])
+          setOpenArea(null)
+          setSelectedPost(null)
+        }
+        return
+      }
+
+      if (drill.level === 'area' && d > BACK_TO_PREFS_DELTA) {
+        setDrill({ level: 'prefecture' })
+      }
+    },
+    [openArea, drill]
   )
 
   /* ── パンくずで上の階層へ戻る ───────────────────── */
@@ -174,8 +261,8 @@ export default function HomeMap() {
     setOpenArea(null)
     setSelectedPost(null)
     setDrill({ level: 'prefecture' })
-    mapRef.current?.animateToRegion(JAPAN, 600)
-  }, [])
+    flyTo(JAPAN, 600)
+  }, [flyTo])
 
   const goToAreas = useCallback(() => {
     setPosts([])
@@ -187,19 +274,28 @@ export default function HomeMap() {
   const recenter = useCallback(async () => {
     const c = coords ?? (await locate())
     if (!c) return
-    mapRef.current?.animateToRegion(
-      { ...c, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-      600
-    )
-  }, [coords, locate])
+    flyTo({ ...c, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600)
+  }, [coords, locate, flyTo])
 
   const visiblePosts = useMemo(
-    () =>
-      posts
-        .filter((p) => genre === 'すべて' || p.genre === genre)
-        .filter((p) => !situation || (p.situations ?? []).includes(situation)),
-    [posts, genre, situation]
+    () => posts.filter((p) => genre === 'すべて' || p.genre === genre),
+    [posts, genre]
   )
+
+  /** 絞り込み中は、選ばれた人のアイコンだけ残す */
+  const visiblePins = useMemo(
+    () => (audience ? pins.filter((p) => audience.includes(p.user_id)) : pins),
+    [pins, audience]
+  )
+
+  /** 絞り込みを変えたら、開いているエリアの投稿を取り直す */
+  useEffect(() => {
+    if (openArea && drill.level === 'area') {
+      loadPostsForArea(drill.prefecture, openArea)
+    }
+    // openArea を依存に入れると読み込みのたびに再実行されるので入れない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audience])
 
   const totalCount = useMemo(
     () => regions.reduce((sum, r) => sum + Number(r.post_count), 0),
@@ -221,14 +317,15 @@ export default function HomeMap() {
         showsCompass={false}
         toolbarEnabled={false}
         customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
-        onPress={() => setSelectedPost(null)}
+        onPress={onMapPress}
+        onRegionChangeComplete={onRegionChangeComplete}
       >
         {showRegionBubbles &&
           regions.map((r) => (
             <Marker
               key={`${drill.level}-${r.name}`}
               coordinate={{ latitude: r.center_lat, longitude: r.center_lng }}
-              onPress={() => onRegionPress(r)}
+              onPress={() => { markMarkerPress(); onRegionPress(r) }}
               tracksViewChanges={false}
               anchor={{ x: 0.5, y: 0.5 }}
             >
@@ -241,7 +338,7 @@ export default function HomeMap() {
             <Marker
               key={p.id}
               coordinate={{ latitude: p.location_lat, longitude: p.location_lng }}
-              onPress={() => setSelectedPost(p)}
+              onPress={() => { markMarkerPress(); setSelectedPost(p) }}
               tracksViewChanges={false}
               anchor={{ x: 0.5, y: 1 }}
             >
@@ -251,15 +348,15 @@ export default function HomeMap() {
 
         {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
         {showPins &&
-          pins.map((pin) => (
+          visiblePins.map((pin) => (
             <Marker
               key={`pin-${pin.user_id}`}
               coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
-              onPress={() =>
-                pin.is_me
-                  ? router.push('/(tabs)/profile')
-                  : router.push(`/user/${pin.username}`)
-              }
+              onPress={() => {
+                markMarkerPress()
+                if (pin.is_me) router.push('/(tabs)/profile')
+                else router.push(`/user/${pin.username}`)
+              }}
               tracksViewChanges={false}
               anchor={{ x: 0.5, y: 1 }}
               zIndex={10}
@@ -312,41 +409,26 @@ export default function HomeMap() {
           </View>
         </View>
 
-        {/* 投稿ピン表示中のみ絞り込みを出す */}
+        {/* 投稿ピン表示中のみ絞り込みを出す。
+            地図の上に置くチップは onMap を立てて面を不透明にする。
+            透明のままだと下の地形が透けて文字が読めない。 */}
         {openArea && (
-          <>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.genreRow}
-            >
-              <Chip label="すべて" selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
-              {GENRES.map((g) => (
-                <Chip
-                  key={g}
-                  label={`${GENRE_EMOJI[g]} ${g}`}
-                  selected={genre === g}
-                  onPress={() => setGenre(g)}
-                />
-              ))}
-            </ScrollView>
-
-            {/* シチュエーション: ジャンルでは拾えない「どんな場面で使うか」の軸 */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.genreRow}
-            >
-              {SITUATIONS.map((s) => (
-                <Chip
-                  key={s}
-                  label={`${SITUATION_EMOJI[s]} ${s}`}
-                  selected={situation === s}
-                  onPress={() => setSituation(situation === s ? null : s)}
-                />
-              ))}
-            </ScrollView>
-          </>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.genreRow}
+          >
+            <Chip label="すべて" onMap selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
+            {GENRES.map((g) => (
+              <Chip
+                key={g}
+                onMap
+                label={`${GENRE_EMOJI[g]} ${g}`}
+                selected={genre === g}
+                onPress={() => setGenre(g)}
+              />
+            ))}
+          </ScrollView>
         )}
       </View>
 
@@ -402,6 +484,42 @@ export default function HomeMap() {
         )}
       </Pressable>
 
+      {/* ── 左下: 誰の地図を見るか ───────────────────── */}
+      <Pressable
+        onPress={() => setDrawerOpen(true)}
+        style={({ pressed }) => [
+          styles.audienceBtn,
+          shadow.float,
+          {
+            backgroundColor: audience ? colors.text : colors.surface,
+            borderColor: audience ? colors.text : colors.border,
+            bottom: insets.bottom + space.xl,
+            opacity: pressed ? 0.85 : 1,
+          },
+        ]}
+        accessibilityLabel="誰の地図を見るかを選ぶ"
+      >
+        <Ionicons
+          name="people-outline"
+          size={17}
+          color={audience ? colors.bg : colors.text}
+        />
+        <Txt
+          variant="smallMed"
+          style={{ color: audience ? colors.bg : colors.text, letterSpacing: 0.6 }}
+        >
+          {audience ? `${audience.length}人の地図` : '他の人の地図'}
+        </Txt>
+      </Pressable>
+
+      <MapAudienceDrawer
+        visible={drawerOpen}
+        myId={user?.id ?? null}
+        selectedIds={audience}
+        onClose={() => setDrawerOpen(false)}
+        onApply={setAudience}
+      />
+
       {/* ── 投稿プレビュー ─────────────────────────── */}
       {selectedPost && (
         <PostPreviewSheet
@@ -410,6 +528,10 @@ export default function HomeMap() {
           onOpenProfile={(username) => {
             setSelectedPost(null)
             router.push(`/user/${username}`)
+          }}
+          onOpenPost={(postId) => {
+            setSelectedPost(null)
+            router.push({ pathname: '/post/[id]', params: { id: postId } })
           }}
         />
       )}
@@ -601,6 +723,17 @@ const styles = StyleSheet.create({
   breadcrumb: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   summary: { flexDirection: 'row', alignItems: 'center', minHeight: 18 },
   genreRow: { paddingHorizontal: space.lg, gap: space.sm, paddingVertical: space.xs },
+  audienceBtn: {
+    position: 'absolute',
+    left: space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    height: 52,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
   fab: {
     position: 'absolute',
     right: space.lg,

@@ -4,7 +4,7 @@ import {
 } from 'react-native'
 import { Image } from 'expo-image'
 import { useState, forwardRef } from 'react'
-import { useTheme, radius, space, type } from '../theme'
+import { useTheme, radius, shadow, space, type } from '../theme'
 
 /* ─────────────────────────  Text  ───────────────────────── */
 
@@ -196,8 +196,20 @@ export function Avatar({
 /* ─────────────────────────  Chip  ───────────────────────── */
 
 export function Chip({
-  label, selected, onPress, count,
-}: { label: string; selected?: boolean; onPress?: () => void; count?: number }) {
+  label, selected, onPress, count, onMap,
+}: {
+  label: string
+  selected?: boolean
+  onPress?: () => void
+  count?: number
+  /**
+   * 地図の上に置くとき用。
+   * 通常のチップは未選択だと背景が透明で、紙の上なら軽くて良いが、
+   * 地図の上では下の地形や道路が透けて文字が読めなくなる。
+   * これを立てると面を不透明にして、輪郭も一段濃くする。
+   */
+  onMap?: boolean
+}) {
   const { colors } = useTheme()
 
   return (
@@ -207,9 +219,10 @@ export function Chip({
       accessibilityState={{ selected: !!selected }}
       style={({ pressed }) => [
         styles.chip,
+        onMap && shadow.card,
         {
-          backgroundColor: selected ? colors.text : 'transparent',
-          borderColor: selected ? colors.text : colors.border,
+          backgroundColor: selected ? colors.text : onMap ? colors.surface : 'transparent',
+          borderColor: selected ? colors.text : onMap ? colors.borderStrong : colors.border,
           opacity: pressed ? 0.7 : 1,
         },
       ]}
