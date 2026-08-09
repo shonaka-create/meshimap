@@ -281,9 +281,18 @@ export function ProfileView({ username, selfId }: Props) {
         )}
       </View>
 
-      {/* ── 次のランクまで（自分のページだけ） ───────────── */}
+      {/* ── 次のランクまで（自分のページだけ） ─────────────
+        * 進捗だけ見せても動けないので、
+        * 「あと何をすればいいか」を1行の導線にして添える。
+        */}
       {isOwn && next && (
-        <View style={[styles.rankBox, { backgroundColor: colors.surfaceAlt }]}>
+        <Pressable
+          onPress={() => router.push('/post/new')}
+          style={({ pressed }) => [
+            styles.rankBox,
+            { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+          ]}
+        >
           <View style={styles.rankBoxTop}>
             <Txt variant="smallMed">{remaining}</Txt>
             <Txt variant="caption" tone="faint">{Math.round(progress * 100)}%</Txt>
@@ -296,10 +305,18 @@ export function ProfileView({ username, selfId }: Props) {
               ]}
             />
           </View>
-          <Txt variant="caption" tone="faint">
-            エリアは「新宿」「恵比寿」など、投稿した街の数です
-          </Txt>
-        </View>
+          <View style={styles.rankBoxTop}>
+            <Txt variant="caption" tone="faint">
+              {profile.areas_count < next.areas
+                ? '行ったことのない街で記録すると早く上がります'
+                : 'エリアは投稿した街の数です'}
+            </Txt>
+            <View style={styles.cta}>
+              <Txt variant="caption" tone="accent">記録する</Txt>
+              <Ionicons name="chevron-forward" size={12} color={colors.accent} />
+            </View>
+          </View>
+        </Pressable>
       )}
 
       <View style={styles.actions}>
@@ -487,8 +504,9 @@ const styles = StyleSheet.create({
   rankBoxTop: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 3 },
+  track: { height: 4, overflow: 'hidden' },
+  fill: { height: '100%' },
+  cta: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   lockBadge: {
     position: 'absolute', top: 5, right: 5,

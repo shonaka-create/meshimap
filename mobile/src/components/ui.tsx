@@ -51,17 +51,26 @@ export function Button({
   const { colors } = useTheme()
   const isDisabled = disabled || loading
 
+  // 主ボタンは墨のベタ塗り。真鍮は選択状態やリンクのために取っておく。
+  // 差し色をボタンにも使うと、画面の中で色が主張しすぎる。
   const bg = {
-    primary: colors.accent,
-    secondary: colors.surfaceAlt,
+    primary: colors.text,
+    secondary: 'transparent',
     ghost: 'transparent',
-    danger: colors.dangerSoft,
+    danger: 'transparent',
   }[variant]
 
   const fg = {
-    primary: colors.accentText,
+    primary: colors.bg,
     secondary: colors.text,
     ghost: colors.accent,
+    danger: colors.danger,
+  }[variant]
+
+  const borderColor = {
+    primary: 'transparent',
+    secondary: colors.borderStrong,
+    ghost: 'transparent',
     danger: colors.danger,
   }[variant]
 
@@ -75,9 +84,9 @@ export function Button({
         styles.btn,
         {
           backgroundColor: bg,
-          borderColor: variant === 'secondary' ? colors.border : 'transparent',
-          borderWidth: variant === 'secondary' ? StyleSheet.hairlineWidth * 2 : 0,
-          opacity: isDisabled ? 0.45 : pressed ? 0.82 : 1,
+          borderColor,
+          borderWidth: variant === 'primary' || variant === 'ghost' ? 0 : 1,
+          opacity: isDisabled ? 0.35 : pressed ? 0.7 : 1,
         },
         style,
       ]}
@@ -87,7 +96,15 @@ export function Button({
       ) : (
         <View style={styles.btnInner}>
           {icon}
-          <Text style={[type.bodyMed as TextStyle, { color: fg }]}>{title}</Text>
+          {/* ボタンの文字は字間を開ける。詰まっていると野暮ったく見える */}
+          <Text
+            style={[
+              type.smallMed as TextStyle,
+              { color: fg, letterSpacing: 1.2 },
+            ]}
+          >
+            {title}
+          </Text>
         </View>
       )}
     </Pressable>
@@ -115,10 +132,11 @@ export const Field = forwardRef<TextInput, {
     <View style={{ gap: space.xs }}>
       {label && <Txt variant="smallMed" tone="muted">{label}</Txt>}
 
+      {/* 囲み枠ではなく下線だけにする。枠は画面に線を増やしてうるさくなる */}
       <View
         style={[
           styles.field,
-          { backgroundColor: colors.surface, borderColor, borderWidth: focused || error ? 2 : 1 },
+          { borderBottomColor: borderColor, borderBottomWidth: focused || error ? 2 : 1 },
         ]}
       >
         {prefix && <Txt variant="body" tone="faint">{prefix}</Txt>}
@@ -190,26 +208,31 @@ export function Chip({
       style={({ pressed }) => [
         styles.chip,
         {
-          backgroundColor: selected ? colors.accent : colors.surface,
-          borderColor: selected ? colors.accent : colors.border,
-          opacity: pressed ? 0.8 : 1,
+          backgroundColor: selected ? colors.text : 'transparent',
+          borderColor: selected ? colors.text : colors.border,
+          opacity: pressed ? 0.7 : 1,
         },
       ]}
     >
-      <Text style={[type.smallMed as TextStyle, { color: selected ? colors.accentText : colors.text }]}>
+      <Text
+        style={[
+          type.smallMed as TextStyle,
+          { color: selected ? colors.bg : colors.textMuted, letterSpacing: 0.6 },
+        ]}
+      >
         {label}
       </Text>
       {count !== undefined && (
         <View
           style={[
             styles.chipCount,
-            { backgroundColor: selected ? 'rgba(255,255,255,0.22)' : colors.surfaceAlt },
+            { backgroundColor: selected ? 'rgba(255,255,255,0.18)' : colors.surfaceAlt },
           ]}
         >
           <Text
             style={[
               type.caption as TextStyle,
-              { color: selected ? colors.accentText : colors.textMuted },
+              { color: selected ? colors.bg : colors.textMuted },
             ]}
           >
             {count}
@@ -227,8 +250,9 @@ export function EmptyState({
 }: { emoji: string; title: string; body?: string; action?: React.ReactNode }) {
   return (
     <View style={styles.empty}>
-      <Text style={{ fontSize: 44 }}>{emoji}</Text>
-      <Txt variant="heading" style={{ marginTop: space.md, textAlign: 'center' }}>{title}</Txt>
+      {/* 大きな絵文字は幼く見えるので小さく添えるだけにする */}
+      <Text style={{ fontSize: 22, opacity: 0.45 }}>{emoji}</Text>
+      <Txt variant="title" style={{ marginTop: space.lg, textAlign: 'center' }}>{title}</Txt>
       {body && (
         <Txt variant="small" tone="muted" style={{ marginTop: space.xs, textAlign: 'center' }}>
           {body}
@@ -253,6 +277,7 @@ export function Loading({ label }: { label?: string }) {
 export function Stat({
   value, label, onPress,
 }: { value: number; label: string; onPress?: () => void }) {
+  const { colors } = useTheme()
   return (
     <Pressable
       onPress={onPress}
@@ -260,16 +285,18 @@ export function Stat({
       accessibilityRole={onPress ? 'button' : undefined}
       style={({ pressed }) => [{ alignItems: 'center', opacity: pressed && onPress ? 0.6 : 1 }]}
     >
-      <Txt variant="heading">{value.toLocaleString('ja-JP')}</Txt>
-      <Txt variant="small" tone="muted">{label}</Txt>
+      <Text style={[type.title as TextStyle, { color: colors.text, fontSize: 20, lineHeight: 28 }]}>
+        {value.toLocaleString('ja-JP')}
+      </Text>
+      <Txt variant="caption" tone="faint">{label}</Txt>
     </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
   btn: {
-    height: 50,
-    borderRadius: radius.md,
+    height: 52,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: space.lg,
@@ -279,17 +306,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    minHeight: 50,
+    paddingHorizontal: 2,
+    paddingBottom: space.sm,
+    minHeight: 44,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderRadius: radius.pill,
+    paddingVertical: 7,
+    borderRadius: radius.sm,
     borderWidth: 1,
   },
   chipCount: {

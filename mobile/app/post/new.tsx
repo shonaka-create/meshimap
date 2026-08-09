@@ -32,7 +32,7 @@ interface Picked {
 }
 
 export default function NewPost() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const { colors } = useTheme()
   const router = useRouter()
   const { coords, locate } = useLocation()
@@ -177,14 +177,28 @@ export default function NewPost() {
         if (imgErr) throw imgErr
       }
 
-      router.back()
+      // 4. 成果画面へ。
+      //    「投稿できた」で終わらせず、何が積み上がったのかを見せる。
+      //    カウンタはDBのトリガーが更新するので、投稿前の値を渡して
+      //    向こう側で最新と突き合わせる。
+      router.replace({
+        pathname: '/post/done',
+        params: {
+          postsBefore: String(profile?.posts_count ?? 0),
+          areasBefore: String(profile?.areas_count ?? 0),
+          area: region.area ?? region.city ?? '',
+          prefecture: region.prefecture ?? '',
+          locationName: locationName.trim(),
+          isPublic: isPublic ? '1' : '0',
+        },
+      })
     } catch (e) {
       Alert.alert('投稿に失敗しました', (e as Error)?.message ?? '不明なエラー')
     } finally {
       setUploading(false)
       setProgress('')
     }
-  }, [user, pin, images, rating, locationName, caption, genre, priceRange, situations, isPublic, router])
+  }, [user, profile, pin, images, rating, locationName, caption, genre, priceRange, situations, isPublic, router])
 
   const toggleSituation = (s: string) =>
     setSituations((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))

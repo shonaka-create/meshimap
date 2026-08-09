@@ -23,6 +23,8 @@ export default function SignUp() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [agreed, setAgreed] = useState(false)
+  const [agreedContent, setAgreedContent] = useState(false)
+  const [agreedAge, setAgreedAge] = useState(false)
 
   const [availability, setAvailability] = useState<Availability>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -108,7 +110,8 @@ export default function SignUp() {
 
   const canSubmit =
     !!displayName.trim() && availability === 'free' &&
-    !!email.trim() && password.length >= 6 && agreed && !busy
+    !!email.trim() && password.length >= 6
+    && agreed && agreedContent && agreedAge && !busy
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -185,29 +188,49 @@ export default function SignUp() {
               }
             />
 
-            {/* App Store Guideline 1.2: UGCアプリは規約への同意が必須 */}
-            <Pressable
-              onPress={() => setAgreed((v) => !v)}
-              style={styles.agreeRow}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: agreed }}
-            >
-              <Ionicons
-                name={agreed ? 'checkbox' : 'square-outline'}
-                size={22}
-                color={agreed ? colors.accent : colors.textFaint}
-              />
-              <Txt variant="small" tone="muted" style={{ flex: 1 }}>
-                <Txt variant="small" tone="accent" onPress={() => router.push('/legal/terms')}>
-                  利用規約
+            {/* App Store Guideline 1.2:
+              * UGCアプリは「規約への同意」と「不適切な内容への不寛容の明示」が必須。
+              * 同意は1つにまとめず分けて取る。まとめると、何に同意したのかが
+              * 曖昧になり、審査でも指摘されやすい。 */}
+            <View style={{ gap: space.md }}>
+              <Check
+                checked={agreed}
+                onPress={() => setAgreed((v) => !v)}
+                colors={colors}
+              >
+                <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                  <Txt variant="small" tone="accent" onPress={() => router.push('/legal/terms')}>
+                    利用規約
+                  </Txt>
+                  {' と '}
+                  <Txt variant="small" tone="accent" onPress={() => router.push('/legal/privacy')}>
+                    プライバシーポリシー
+                  </Txt>
+                  {' に同意します'}
                 </Txt>
-                {' と '}
-                <Txt variant="small" tone="accent" onPress={() => router.push('/legal/privacy')}>
-                  プライバシーポリシー
+              </Check>
+
+              <Check
+                checked={agreedContent}
+                onPress={() => setAgreedContent((v) => !v)}
+                colors={colors}
+              >
+                <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                  不適切な投稿・迷惑行為を行いません。違反した場合、
+                  投稿の削除やアカウントの停止に同意します
                 </Txt>
-                {' に同意します。迷惑行為や不適切な投稿は禁止です。'}
-              </Txt>
-            </Pressable>
+              </Check>
+
+              <Check
+                checked={agreedAge}
+                onPress={() => setAgreedAge((v) => !v)}
+                colors={colors}
+              >
+                <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                  13歳以上です
+                </Txt>
+              </Check>
+            </View>
 
             {error && (
               <View style={[styles.error, { backgroundColor: colors.dangerSoft }]}>
@@ -230,6 +253,32 @@ export default function SignUp() {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  )
+}
+
+/** 同意用のチェック行。同じ見た目を3回書かないための小さな部品 */
+function Check({
+  checked, onPress, colors, children,
+}: {
+  checked: boolean
+  onPress: () => void
+  colors: { accent: string; textFaint: string }
+  children: React.ReactNode
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={styles.agreeRow}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+    >
+      <Ionicons
+        name={checked ? 'checkbox' : 'square-outline'}
+        size={21}
+        color={checked ? colors.accent : colors.textFaint}
+      />
+      {children}
+    </Pressable>
   )
 }
 

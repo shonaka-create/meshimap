@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, space, radius, shadow, GENRE_EMOJI } from '../theme'
 import { Avatar, Txt } from './ui'
+import { openDirections, openInMaps } from '../lib/maps'
 import type { Post } from '../lib/types'
 
 /** 地図上でピンを選んだときに下から出るプレビュー */
@@ -71,6 +72,33 @@ export function PostPreviewSheet({
         </Txt>
       )}
 
+      {/* 「行きたい」導線。
+          外部の地図アプリを URL で開くだけなので API 費用はかからない。
+          予約は請け負わないので、店を見つけるところまでで手を離す。 */}
+      <View style={styles.actions}>
+        <Pressable
+          onPress={() => openInMaps(post.location_name, post.area)}
+          style={({ pressed }) => [
+            styles.action,
+            { borderColor: colors.borderStrong, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <Ionicons name="storefront-outline" size={15} color={colors.text} />
+          <Txt variant="smallMed">この店を調べる</Txt>
+        </Pressable>
+
+        <Pressable
+          onPress={() => openDirections(post.location_lat, post.location_lng, post.location_name)}
+          style={({ pressed }) => [
+            styles.action,
+            { borderColor: colors.borderStrong, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <Ionicons name="navigate-outline" size={15} color={colors.text} />
+          <Txt variant="smallMed">行き方</Txt>
+        </Pressable>
+      </View>
+
       {post.author && (
         <Pressable
           onPress={() => onOpenProfile(post.author!.username)}
@@ -107,6 +135,15 @@ const styles = StyleSheet.create({
   rating: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   images: { paddingHorizontal: space.lg, gap: space.sm },
   image: { width: 132, height: 96, borderRadius: radius.md },
+  actions: {
+    flexDirection: 'row', gap: space.sm,
+    paddingHorizontal: space.lg, paddingTop: space.md,
+  },
+  action: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: space.xs, paddingVertical: space.sm,
+    borderWidth: 1, borderRadius: radius.sm,
+  },
   author: {
     flexDirection: 'row',
     alignItems: 'center',

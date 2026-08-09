@@ -15,6 +15,7 @@ import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
+import { CloudTransition, type CloudTransitionHandle } from '../../src/components/CloudTransition'
 import { RANKS } from '../../src/lib/rank'
 
 /** 日本全体が収まる初期表示 */
@@ -43,6 +44,7 @@ export default function HomeMap() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const mapRef = useRef<MapView>(null)
+  const cloudRef = useRef<CloudTransitionHandle>(null)
   const { coords, permission, locating, locate } = useLocation()
 
   const [drill, setDrill] = useState<Drill>({ level: 'prefecture' })
@@ -135,22 +137,33 @@ export default function HomeMap() {
     []
   )
 
-  /* ── 地域バブルをタップ → 1階層下る ─────────────────── */
+  /* ── 地域バブルをタップ → 1階層下る ───────────────────
+   * 雲を抜けて降りる演出を挟む。
+   * 雲が覆いきった裏でカメラを動かすので、切り替わりが見えず、
+   * 地図の再描画の重さもそこで吸収できる。
+   */
   const onRegionPress = useCallback(
     (r: RegionCount) => {
-      // 選択した地域へ寄せる。下るほど拡大率を上げる。
       const delta = drill.level === 'prefecture' ? 0.45 : 0.06
-      mapRef.current?.animateToRegion(
-        { latitude: r.center_lat, longitude: r.center_lng, latitudeDelta: delta, longitudeDelta: delta },
-        600
-      )
 
-      if (drill.level === 'prefecture') {
-        setDrill({ level: 'area', prefecture: r.name })
-      } else {
-        // 最下層。エリアを選んだので個々の投稿ピンに切り替える
-        loadPostsForArea(drill.prefecture, r.name)
-      }
+      cloudRef.current?.fly(() => {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: r.center_lat,
+            longitude: r.center_lng,
+            latitudeDelta: delta,
+            longitudeDelta: delta,
+          },
+          520
+        )
+
+        if (drill.level === 'prefecture') {
+          setDrill({ level: 'area', prefecture: r.name })
+        } else {
+          // 最下層。エリアを選んだので個々の投稿ピンに切り替える
+          loadPostsForArea(drill.prefecture, r.name)
+        }
+      })
     },
     [drill, loadPostsForArea]
   )
@@ -207,7 +220,7 @@ export default function HomeMap() {
         showsMyLocationButton={false}
         showsCompass={false}
         toolbarEnabled={false}
-        customMapStyle={isDark ? DARK_MAP_STYLE : undefined}
+        customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
         onPress={() => setSelectedPost(null)}
       >
         {showRegionBubbles &&
@@ -255,6 +268,9 @@ export default function HomeMap() {
             </Marker>
           ))}
       </MapView>
+
+      {/* 雲は地図の上・操作UIの下。pointerEvents は none なので操作は妨げない */}
+      <CloudTransition ref={cloudRef} />
 
       {/* ── 上部: パンくず + 階層見出し ───────────────── */}
       <View style={[styles.top, { paddingTop: insets.top + space.sm }]} pointerEvents="box-none">
@@ -428,7 +444,13 @@ function FriendPin({ pin }: { pin: MapPin }) {
 
   return (
     <View style={{ alignItems: 'center' }}>
-      <View style={[styles.friendCard, shadow.float, { backgroundColor: colors.surface }]}>
+      <View
+        style={[
+          styles.friendCard,
+          shadow.float,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
+      >
         <RankAvatar
           uri={pin.photo_url}
           emoji={pin.avatar_emoji}
@@ -467,21 +489,32 @@ function RegionBubble({ name, count }: { name: string; count: number }) {
   const { colors } = useTheme()
 
   // 件数が多いほど少しだけ大きくする（対数で頭打ちにする）
-  const size = Math.min(76, 46 + Math.log2(count + 1) * 7)
+  const size = Math.min(72, 44 + Math.log2(count + 1) * 6)
 
   return (
     <View style={{ alignItems: 'center' }}>
+      {/* ベタ塗りの丸をやめ、白地に細い罫線。数字は明朝で置く。
+          地図の上で色の面が動くと安っぽく見えるため。 */}
       <View
         style={[
           styles.bubble,
           shadow.card,
-          { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.accent },
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.borderStrong,
+          },
         ]}
       >
-        <Txt variant="heading" tone="inverse">{count}</Txt>
+        <Txt variant="title" style={{ fontSize: size * 0.34, lineHeight: size * 0.42 }}>
+          {count}
+        </Txt>
       </View>
-      <View style={[styles.bubbleLabel, { backgroundColor: colors.surface }]}>
-        <Txt variant="caption" numberOfLines={1}>{name}</Txt>
+      <View style={[styles.bubbleLabel, { backgroundColor: colors.text }]}>
+        <Txt variant="caption" tone="inverse" numberOfLines={1}>{name}</Txt>
       </View>
     </View>
   )
@@ -503,8 +536,8 @@ function PostPin({ genre, selected }: { genre: string; selected: boolean }) {
             height: size,
             borderRadius: size / 2,
             backgroundColor: colors.surface,
-            borderColor: selected ? colors.accent : colors.pinStroke,
-            borderWidth: selected ? 3 : 2,
+            borderColor: selected ? colors.accent : colors.borderStrong,
+            borderWidth: selected ? 2 : 1,
           },
         ]}
       >
@@ -522,6 +555,29 @@ function PostPin({ genre, selected }: { genre: string; selected: boolean }) {
 
 /* ─────────────────────────  ダークマップ  ───────────────────────── */
 /** 夜間は地図の彩度を落として、料理写真とピンを前に出す */
+/**
+ * 地図の配色。
+ *
+ * 標準の Google 地図は道路が黄色・施設が色付きで、写真と一緒に置くと
+ * 画面が散らかる。彩度を落として紙面に近づけ、
+ * 主役（写真とピン）が浮くようにする。
+ * 施設や交通のラベルも消して、こちらのピンだけが情報になるようにした。
+ */
+const LIGHT_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#F5F3EF' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8A837B' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#FAF9F7' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: '#EFECE6' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E7E3DB' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#A39C93' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#F0EBE2' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#DFE5E4' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#DDD8CF' }] },
+]
+
 const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#1F1B19' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#A79E97' }] },
@@ -556,11 +612,11 @@ const styles = StyleSheet.create({
   },
   bubble: { alignItems: 'center', justifyContent: 'center' },
   bubbleLabel: {
-    marginTop: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: radius.sm,
-    maxWidth: 96,
+    maxWidth: 104,
   },
   pin: { alignItems: 'center', justifyContent: 'center' },
   pinTail: {
@@ -577,10 +633,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingVertical: space.xs,
-    paddingHorizontal: space.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     paddingRight: space.md,
-    borderRadius: radius.pill,
+    borderRadius: radius.sm,
+    borderWidth: 1,
   },
   friendTail: {
     width: 0,

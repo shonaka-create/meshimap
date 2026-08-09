@@ -1,65 +1,70 @@
-import { useColorScheme } from 'react-native'
+import { Platform, useColorScheme } from 'react-native'
 
 /**
- * MeshiMap デザインシステム（0ベース刷新）
+ * MeshiMap デザインシステム —「白のギャラリー」
  *
- * 方針:
- *  - 旧デザインの「オレンジ→ローズのグラデーション」を全廃。
- *    グラデーションは安く見えやすく、地図の上に置くと情報を潰す。
- *  - 温かみのある紙色の地に、炭色の文字、差し色は「熾火(ember)」1色のみ。
- *    食べ物の写真が主役なので、UIの色数を絞って写真を邪魔しない。
- *  - 地図・位置系のアクセントだけ深い緑を当て、赤系(ember)と役割を分ける。
- *  - ライト/ダーク両対応（iOSの外観設定に追従）。
+ * 狙い:
+ *   個人店だけを扱うアプリなので、画面自体が「わかっている人の持ち物」に
+ *   見える必要がある。人に見せて恥ずかしくない画面。
+ *
+ * そのための方針:
+ *   - 色でにぎやかにしない。地は骨色、文字は黒に近い墨、差し色は真鍮1色。
+ *     食べ物の写真は元々色が強いので、UIが色を持つと途端に安っぽくなる。
+ *   - 角丸をほぼ捨てる。角丸は「やさしい・カジュアル」の記号なので、
+ *     写真は角丸なし、面は 2px まで。丸めるのは押せるものだけ。
+ *   - 影を捨てて罫線で構造を作る。雑誌の紙面の作り方に寄せる。
+ *   - 見出しは明朝。iOS には游明朝/ヒラギノ明朝が入っているので、
+ *     フォントを同梱せずに使える（起動が遅くならない）。
+ *   - 余白を大きく取る。詰めると情報量で勝負しているように見える。
  */
 
 const palette = {
   light: {
-    bg: '#FBF8F4',          // 温かい紙色
+    bg: '#FAF9F7',          // 骨色
     surface: '#FFFFFF',
-    surfaceAlt: '#F3EDE5',  // 押下・非活性の面
-    border: '#E7DFD4',
-    borderStrong: '#D6CABA',
+    surfaceAlt: '#F2F0EC',
+    border: '#E4E0D9',      // 罫線。これが構造を作る
+    borderStrong: '#C9C2B7',
 
-    text: '#1C1917',        // 炭
-    textMuted: '#7A716A',
-    textFaint: '#A9A099',
+    text: '#14110F',        // 墨
+    textMuted: '#6E6862',
+    textFaint: '#9C958C',
 
-    accent: '#D14A26',      // 熾火
+    accent: '#8C6A3F',      // 真鍮
     accentText: '#FFFFFF',
-    accentSoft: '#FBEBE4',  // 選択中チップの地
+    accentSoft: '#F0EAE0',
 
-    geo: '#2E6B4F',         // 位置・現在地
-    geoSoft: '#E4EFE8',
+    geo: '#3F5D52',         // 位置・現在地
+    geoSoft: '#E7EDE9',
 
-    star: '#D9932B',
-    danger: '#B42318',
-    dangerSoft: '#FDECEA',
+    star: '#8C6A3F',        // 差し色と揃える。星だけ黄色いのは安く見える
+    danger: '#9B2C2C',
+    dangerSoft: '#F6EAEA',
 
-    scrim: 'rgba(28,25,23,0.45)',
-    // 地図ピンの縁取り（写真の上でも視認できるよう白固定）
+    scrim: 'rgba(20,17,15,0.42)',
     pinStroke: '#FFFFFF',
   },
   dark: {
-    bg: '#141110',
-    surface: '#1F1B19',
-    surfaceAlt: '#2B2523',
-    border: '#3A322D',
-    borderStrong: '#4C423B',
+    bg: '#131211',
+    surface: '#1B1917',
+    surfaceAlt: '#252220',
+    border: '#332F2B',
+    borderStrong: '#4A443E',
 
-    text: '#F6F1EB',
-    textMuted: '#A79E97',
-    textFaint: '#7C736D',
+    text: '#F2EDE6',
+    textMuted: '#A19A91',
+    textFaint: '#78716A',
 
-    accent: '#FF7A55',
-    accentText: '#2A1109',
-    accentSoft: '#3A1F16',
+    accent: '#C8A24A',
+    accentText: '#1B1408',
+    accentSoft: '#2A241A',
 
-    geo: '#6FBF95',
-    geoSoft: '#1E2E26',
+    geo: '#7FA894',
+    geoSoft: '#1D2723',
 
-    star: '#E8B45C',
-    danger: '#F97066',
-    dangerSoft: '#3A1B18',
+    star: '#C8A24A',
+    danger: '#E06C6C',
+    dangerSoft: '#33201F',
 
     scrim: 'rgba(0,0,0,0.6)',
     pinStroke: '#FFFFFF',
@@ -68,55 +73,85 @@ const palette = {
 
 export type Colors = (typeof palette)['light']
 
-/** 4px グリッド */
+/**
+ * 余白。
+ * 以前より一段広く取る。詰まった画面は「情報量で勝負している」印象になり、
+ * 個人店を静かに見せたい今回の方向と合わない。
+ */
 export const space = {
   xs: 4,
   sm: 8,
   md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
-  xxxl: 48,
+  lg: 20,
+  xl: 28,
+  xxl: 40,
+  xxxl: 64,
 } as const
 
+/**
+ * 角丸。
+ * 写真とカードは角丸なし（sq）。丸めるのは「押せるもの」だけに限る。
+ * pill はチップやFABなど、丸いこと自体が機能の合図になるものに使う。
+ */
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 22,
+  sq: 0,
+  sm: 2,
+  md: 2,
+  lg: 3,
+  xl: 4,
   pill: 999,
 } as const
 
 /**
- * タイポグラフィ。
- * 見出しは字間を詰めて締め、本文は行間を広めに取って読みやすくする。
+ * 書体。
+ * 見出しは明朝。iOS 標準の「ヒラギノ明朝 ProN」を使うので同梱不要。
+ * Android には無いので serif にフォールバックする。
  */
-export const type = {
-  display: { fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: -0.6 },
-  title:   { fontSize: 22, lineHeight: 28, fontWeight: '700', letterSpacing: -0.3 },
-  heading: { fontSize: 17, lineHeight: 23, fontWeight: '600', letterSpacing: -0.2 },
-  body:    { fontSize: 15, lineHeight: 22, fontWeight: '400' },
-  bodyMed: { fontSize: 15, lineHeight: 22, fontWeight: '600' },
-  small:   { fontSize: 13, lineHeight: 18, fontWeight: '400' },
-  smallMed:{ fontSize: 13, lineHeight: 18, fontWeight: '600' },
-  caption: { fontSize: 11, lineHeight: 15, fontWeight: '600', letterSpacing: 0.2 },
+export const fonts = {
+  serif: Platform.select({ ios: 'Hiragino Mincho ProN', android: 'serif', default: 'serif' }),
 } as const
 
-/** 影は控えめに。iOSは shadow、Androidは elevation。 */
+/**
+ * タイポグラフィ。
+ * 見出しは明朝で大きく、行間を広く。
+ * ラベル(label)は字間を開けた小さな大文字風で、雑誌のキャプションの役。
+ */
+export const type = {
+  display: {
+    fontFamily: fonts.serif, fontSize: 32, lineHeight: 44,
+    fontWeight: '400', letterSpacing: 0.5,
+  },
+  title: {
+    fontFamily: fonts.serif, fontSize: 23, lineHeight: 34,
+    fontWeight: '400', letterSpacing: 0.4,
+  },
+  heading: { fontSize: 16, lineHeight: 24, fontWeight: '600', letterSpacing: 0.2 },
+  body:    { fontSize: 15, lineHeight: 25, fontWeight: '400' },
+  bodyMed: { fontSize: 15, lineHeight: 25, fontWeight: '600' },
+  small:   { fontSize: 13, lineHeight: 20, fontWeight: '400' },
+  smallMed:{ fontSize: 13, lineHeight: 20, fontWeight: '600' },
+  /** 「BISTRO · 西麻布」のような小見出し。字間を開けて使う */
+  caption: { fontSize: 10, lineHeight: 15, fontWeight: '600', letterSpacing: 1.4 },
+} as const
+
+/**
+ * 影はほぼ使わない。構造は罫線で作る。
+ * 地図の上に浮かせる要素だけ、輪郭が消えない程度に薄く落とす。
+ */
 export const shadow = {
   card: {
-    shadowColor: '#1C1917',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    shadowColor: '#14110F',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   float: {
-    shadowColor: '#1C1917',
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    shadowColor: '#14110F',
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
 } as const
 
@@ -130,13 +165,14 @@ export function useTheme() {
     radius,
     type,
     shadow,
+    fonts,
   }
 }
 
 /**
- * ジャンル定義。絵文字は残すが、旧デザインの
- * 「ジャンルごとにバラバラの縁色」はやめて彩度を揃えた。
- * 地図上でピンが虹色になるのを防ぐため。
+ * ジャンル。
+ * 絵文字は地図のピンでだけ使う（小さくても判別できるため）。
+ * チップや一覧では文字だけにする。絵文字が並ぶ画面は幼く見える。
  */
 export const GENRES = [
   '和食', '洋食', 'イタリアン', 'フレンチ', '中華', '韓国料理',
