@@ -149,6 +149,16 @@ NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=＜Web用の鍵（HTTPリファラ制限）＞
 **先に** Authentication → **Sign In / Providers → Confirm email を OFF** にしてください。
 確認メールが必要な状態だと、スクリプトがサインインできません。
 
+**PowerShell（Windows）**
+
+```powershell
+$env:SEED_PASSWORD='デモ用の適当なパスワード'
+$env:SEED_ADMIN_PASSWORD='運営用の別のパスワード'
+npm run seed
+```
+
+**bash / zsh（macOS・Linux）**
+
 ```bash
 SEED_PASSWORD='デモ用の適当なパスワード' \
 SEED_ADMIN_PASSWORD='運営用の別のパスワード' \
