@@ -7,13 +7,27 @@ import {
 import { BlurView } from 'expo-blur'
 import { useTheme } from '../theme'
 
-export interface CloudTransitionHandle {
+export interface CloudTransitionSteps {
   /**
-   * 雲を抜ける演出を再生する。
-   * 雲が画面を覆いきった瞬間に onCovered が呼ばれるので、
-   * そこで地図のカメラを移動させる（切り替わりが見えない）。
+   * 雲が画面を覆いきった瞬間。
+   * ここで地図のカメラを飛ばす（切り替わりが見えない）。
    */
-  fly: (onCovered: () => void) => void
+  onCovered: () => void
+  /**
+   * 雲が晴れはじめる瞬間。
+   *
+   * ここで最後の寄りを見せる。移動を全部 onCovered で済ませると
+   * 地面は瞬間移動していて、雲だけが動いている絵になる。
+   * 晴れながらカメラが降りると「雲を抜けて近づいた」ように見える。
+   */
+  onClearing?: () => void
+  /** 「視覚効果を減らす」設定のとき。演出せずに済ませる */
+  onSkip?: () => void
+}
+
+export interface CloudTransitionHandle {
+  /** 雲を抜ける演出を再生する */
+  fly: (steps: CloudTransitionSteps) => void
 }
 
 /**
@@ -50,9 +64,11 @@ const CLOUDS = [
   { x: -0.02, y: 0.44, s: 0.68, depth: 0.55, o: 0.82, spin: 5 },
 ]
 
-const COVER_MS = 300   // 覆うまで
-const HOLD_MS = 110    // 覆ったまま保持（この間にカメラを動かす）
-const CLEAR_MS = 820   // 抜けるまで
+/** 覆うまで。呼び出し側もこの間にカメラを寄せはじめるので公開する */
+export const COVER_MS = 300
+const HOLD_MS = 110    // 覆ったまま保持（この間にカメラを飛ばす）
+/** 抜けるまで。呼び出し側はこの間に最後の寄りを見せる */
+export const CLEAR_MS = 820
 
 /**
  * 県からエリアへ降りるときの「雲を抜ける」演出。
@@ -91,13 +107,17 @@ export const CloudTransition = forwardRef<CloudTransitionHandle>(
     }, [])
 
     const fly = useCallback(
-      (onCovered: () => void) => {
+      ({ onCovered, onClearing, onSkip }: CloudTransitionSteps) => {
         if (busy.current) return
         busy.current = true
 
         /** 演出せずに即座に移動する経路。失敗時もここへ落とす */
         const skip = () => {
-          onCovered()
+          if (onSkip) onSkip()
+          else {
+            onCovered()
+            onClearing?.()
+          }
           busy.current = false
         }
 
@@ -125,6 +145,11 @@ export const CloudTransition = forwardRef<CloudTransitionHandle>(
               if (!finished || !mounted.current) { busy.current = false; return }
 
               onCovered()
+
+              // 晴れはじめと同時に最後の寄りを走らせる。
+              // 雲が薄くなっていく裏で地面が近づくので、
+              // 抜けた瞬間には「降りてきた」結果だけが見えている。
+              onClearing?.()
 
               const clear = Animated.timing(t, {
                 toValue: 2,

@@ -15,7 +15,9 @@ import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
-import { CloudTransition, type CloudTransitionHandle } from '../../src/components/CloudTransition'
+import {
+  CloudTransition, CLEAR_MS, COVER_MS, type CloudTransitionHandle,
+} from '../../src/components/CloudTransition'
 import { MapAudienceDrawer } from '../../src/components/MapAudienceDrawer'
 import { useAuth } from '../../src/hooks/useAuth'
 import { RANKS } from '../../src/lib/rank'
@@ -94,6 +96,13 @@ export default function HomeMap() {
     suppressUntil.current = Date.now() + ms + 400
     mapRef.current?.animateToRegion(region, ms)
   }, [])
+
+  /**
+   * いまのカメラの高さ（latitudeDelta）。
+   * 降りる演出で「必ず寄る」ようにするために持っておく。
+   * これが無いと、エリアから投稿へ降りるときに一度引いてしまう。
+   */
+  const cameraDelta = useRef(JAPAN.latitudeDelta)
 
   /**
    * ピンを押した時刻。地図の onPress を無視するために使う。
@@ -205,25 +214,57 @@ export default function HomeMap() {
    */
   const onRegionPress = useCallback(
     (r: RegionCount) => {
-      const delta = drill.level === 'prefecture' ? 0.45 : 0.06
-
-      cloudRef.current?.fly(() => {
+      const finalDelta = drill.level === 'prefecture' ? 0.45 : 0.06
+      const at = (d: number, ms: number) =>
         flyTo(
           {
             latitude: r.center_lat,
             longitude: r.center_lng,
-            latitudeDelta: delta,
-            longitudeDelta: delta,
+            latitudeDelta: d,
+            longitudeDelta: d,
           },
-          520
+          ms
         )
 
+      /** 階層を1つ進める。雲で隠れている間に済ませる */
+      const advance = () => {
         if (drill.level === 'prefecture') {
           setDrill({ level: 'area', prefecture: r.name })
         } else {
           // 最下層。エリアを選んだので個々の投稿ピンに切り替える
           loadPostsForArea(drill.prefecture, r.name)
         }
+      }
+
+      // 移動を3段に分けて「降りていく」ように見せる。
+      //
+      // 以前は雲が覆いきってから一気に飛ばしていたので、
+      // 地面は瞬間移動していて、動いているのは雲だけだった。
+      // 近づいた実感が出なかったのはそのため。
+      //
+      //   1. 雲が覆うより先に寄りはじめる … 動き出しを見せる
+      //   2. 覆っている裏で目的地の少し上まで飛ぶ … ここは見えない
+      //   3. 雲が晴れながら最後に降りる     … 抜けた先に着地する
+      //
+      // どの段でも必ず今より寄る。エリアから投稿へ降りるときに
+      // 一度引いてしまうと、近づく話の筋が途切れる。
+      const approach = Math.max(finalDelta * 1.8, cameraDelta.current * 0.55)
+      const overhead = Math.max(finalDelta * 2.2, finalDelta)
+
+      at(approach, COVER_MS)
+
+      cloudRef.current?.fly({
+        onCovered: () => {
+          at(Math.min(approach, overhead), 1)
+          advance()
+        },
+        // 晴れる時間より少し長くとって、抜けきった後もまだ寄っている
+        onClearing: () => at(finalDelta, CLEAR_MS + 140),
+        // 演出しない設定のときは、素直に1回で寄せる
+        onSkip: () => {
+          at(finalDelta, 420)
+          advance()
+        },
       })
     },
     [drill, loadPostsForArea, flyTo]
@@ -235,9 +276,11 @@ export default function HomeMap() {
    */
   const onRegionChangeComplete = useCallback(
     (region: Region) => {
-      if (Date.now() < suppressUntil.current) return
-
       const d = region.latitudeDelta
+      // 高さは常に控える。こちらから動かした分も「いまの高さ」ではある。
+      cameraDelta.current = d
+
+      if (Date.now() < suppressUntil.current) return
 
       if (openArea !== null) {
         if (d > BACK_TO_AREAS_DELTA) {
