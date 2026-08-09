@@ -11,7 +11,8 @@
     "check:regions": "node scripts/check-regions-sync.mjs",
     "seed": "node scripts/seed.mjs",
     "backfill:regions": "node scripts/backfill-regions.mjs",
-    "check:sql": "node scripts/check-sql.mjs"
+    "check:sql": "node scripts/check-sql.mjs",
+    "check:seed": "node scripts/check-seed.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",

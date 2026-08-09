@@ -45,6 +45,12 @@ jobs:
       - name: SQL syntax
         run: npm run check:sql
 
+      # デモ投稿の prefecture / area は手書き。エリアデータを増やすと
+      # 座標からの判定が変わり、既存のデモが静かに壊れる
+      # （225→307件に増やしたとき実際に起きた）。投入前に気づく。
+      - name: Seed data consistency
+        run: npm run check:seed
+
   # モバイル（Expo）は独立した npm プロジェクト。
   # ネイティブビルドは EAS 側に任せ、ここでは型チェックのみ回す。
   mobile:
