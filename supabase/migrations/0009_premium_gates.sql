@@ -21,6 +21,33 @@
 BEGIN;
 
 -- ============================================================
+-- 前提の確認
+--
+-- 移行は番号順に依存している。途中を飛ばすと、
+-- 「function public.is_subscribed(uuid) does not exist」のような
+-- 素の PostgreSQL のエラーになり、どれを流し直せばよいか分からない。
+-- ここで先に見て、番号で答える。
+--
+-- どこまで適用済みかの一覧は supabase/check_state.sql で出せる。
+-- ============================================================
+
+DO $$
+BEGIN
+  IF to_regprocedure('public.is_subscribed(uuid)') IS NULL THEN
+    RAISE EXCEPTION
+      '移行 0005 が未適用です。先に 0005_admin_pin_and_follow_limit.sql を実行してください。'
+      USING HINT = 'supabase/check_state.sql を実行すると、どこまで適用済みかを一覧で確認できます。';
+  END IF;
+
+  IF to_regprocedure('public.featured_window_days()') IS NULL THEN
+    RAISE EXCEPTION
+      '移行 0008 が未適用です。先に 0008_impressions_featured_monthly.sql を実行してください。'
+      USING HINT = 'supabase/check_state.sql を実行すると、どこまで適用済みかを一覧で確認できます。';
+  END IF;
+END $$;
+
+
+-- ============================================================
 -- 0. 無料で見せる量
 --    ★ mobile/src/lib/billing.ts の FREE_RANKING_ROWS /
 --      FREE_FEATURED_ROWS と揃えること。
