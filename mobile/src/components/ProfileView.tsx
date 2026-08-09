@@ -13,6 +13,7 @@ import { ReportDialog } from './ReportDialog'
 import { RankAvatar, RankBadge } from './RankAvatar'
 import { AvatarEmojiPicker } from './AvatarEmojiPicker'
 import { nextRank, progressToNext, rankOf, remainingToNext } from '../lib/rank'
+import { FREE_FOLLOW_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
 
@@ -123,11 +124,25 @@ export function ProfileView({ username, selfId }: Props) {
         }
       }
     } catch (e) {
-      Alert.alert('エラー', (e as Error).message)
+      // 上限はDBのトリガーが止めている。端末側のチェックだけだと
+      // API を直接叩けば回避できるため、エラーを受けて案内する。
+      if (isFollowLimitError(e)) {
+        Alert.alert(
+          'フォローできる人数の上限です',
+          `無料でフォローできるのは${FREE_FOLLOW_LIMIT}人までです。`
+            + '\n（運営アカウントはこの人数に含まれません）',
+          [
+            { text: '閉じる', style: 'cancel' },
+            { text: 'プランを見る', onPress: () => router.push('/settings/subscription') },
+          ]
+        )
+      } else {
+        Alert.alert('エラー', (e as Error).message)
+      }
     } finally {
       setBusyFollow(false)
     }
-  }, [user, profile, followStatus, load])
+  }, [user, profile, followStatus, load, router])
 
   /* ── 投稿ごとの公開/非公開切り替え（自分のみ） ────────── */
   const togglePostVisibility = useCallback(async (post: Post) => {
