@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  FlatList, Pressable, RefreshControl, StyleSheet, View, useWindowDimensions,
+  FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions,
 } from 'react-native'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
-import { useTheme, space, radius, GENRE_EMOJI } from '../../src/theme'
-import { Avatar, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
+import {
+  useTheme, space, radius, GENRE_EMOJI, SITUATIONS, SITUATION_EMOJI,
+} from '../../src/theme'
+import { Avatar, Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 
@@ -21,6 +23,7 @@ export default function Search() {
 
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<Tab>('posts')
+  const [situation, setSituation] = useState<string | null>(null)
 
   const [discover, setDiscover] = useState<Post[]>([])
   const [postResults, setPostResults] = useState<Post[]>([])
@@ -101,7 +104,11 @@ export default function Search() {
   }, [loadDiscover])
 
   const isSearching = query.trim().length > 0
-  const posts = isSearching ? postResults : discover
+  const basePosts = isSearching ? postResults : discover
+  // シチュエーションは取得済みの結果に対して絞り込む（追加の通信をしない）
+  const posts = situation
+    ? basePosts.filter((p) => (p.situations ?? []).includes(situation))
+    : basePosts
 
   /* ─────────────────────────  描画  ───────────────────────── */
 
@@ -239,6 +246,24 @@ export default function Search() {
         />
       </View>
 
+      {/* シチュエーション絞り込み。アカウントタブでは意味がないので出さない。 */}
+      {!(isSearching && tab === 'accounts') && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.situationRow}
+        >
+          {SITUATIONS.map((s) => (
+            <Chip
+              key={s}
+              label={`${SITUATION_EMOJI[s]} ${s}`}
+              selected={situation === s}
+              onPress={() => setSituation(situation === s ? null : s)}
+            />
+          ))}
+        </ScrollView>
+      )}
+
       {/* 検索中だけタブを出す。未検索時は発見グリッドのみ。 */}
       {isSearching && (
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>
@@ -266,6 +291,7 @@ export default function Search() {
 
 const styles = StyleSheet.create({
   searchBar: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md },
+  situationRow: { paddingHorizontal: space.lg, gap: space.sm, paddingBottom: space.md },
   tabs: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },

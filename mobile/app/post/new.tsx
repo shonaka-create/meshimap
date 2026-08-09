@@ -15,8 +15,10 @@ import { useLocation } from '../../src/hooks/useLocation'
 import { resolveRegion } from '../../src/lib/geocode'
 import {
   useTheme, space, radius, GENRES, GENRE_EMOJI, PRICE_RANGES,
+  SITUATIONS, SITUATION_EMOJI,
   type Genre, type PriceRange,
 } from '../../src/theme'
+import { nearestArea } from '../../src/lib/regions'
 import { Button, Chip, Field, Txt } from '../../src/components/ui'
 
 /** 要件: 写真は5枚まで。動画は登録できない。 */
@@ -40,11 +42,19 @@ export default function NewPost() {
   const [rating, setRating] = useState(0)
   const [genre, setGenre] = useState<Genre>('その他')
   const [priceRange, setPriceRange] = useState<PriceRange>('¥1,001〜¥3,000')
+  const [situations, setSituations] = useState<string[]>([])
   const [locationName, setLocationName] = useState('')
   const [pin, setPin] = useState<{ latitude: number; longitude: number } | null>(null)
   const [isPublic, setIsPublic] = useState(false) // 要件: 初期は非公開
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState('')
+
+  /**
+   * 地図は必要になるまで描画しない。
+   * Google Maps は「地図を1回読み込むごと」に課金される（パン/ズームは無料）ため、
+   * 位置を微調整しない人の分の読み込みを丸ごと節約できる。
+   */
+  const [showMap, setShowMap] = useState(false)
 
   /* ── 初期位置は現在地に寄せる ────────────────────── */
   useEffect(() => {
@@ -106,7 +116,8 @@ export default function NewPost() {
 
     setUploading(true)
     try {
-      // 1. 逆ジオコーディングで 県/市区町村 を決める（地図の階層集計に使う）
+      // 1. 都道府県とエリアを決める（地図の階層集計に使う）。
+      //    内蔵データで決まればここで API は一切消費しない。
       setProgress('場所を確認しています…')
       const region = await resolveRegion(pin.latitude, pin.longitude)
 
@@ -128,6 +139,8 @@ export default function NewPost() {
           is_public: isPublic,
           prefecture: region.prefecture,
           city: region.city,
+          area: region.area,
+          situations,
           hashtags,
         })
         .select()
@@ -170,7 +183,13 @@ export default function NewPost() {
       setUploading(false)
       setProgress('')
     }
-  }, [user, pin, images, rating, locationName, caption, genre, priceRange, isPublic, router])
+  }, [user, pin, images, rating, locationName, caption, genre, priceRange, situations, isPublic, router])
+
+  const toggleSituation = (s: string) =>
+    setSituations((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
+
+  /** ピンの位置から内蔵データで決まるエリア名。API を使わずに即座に出せる。 */
+  const areaPreview = pin ? nearestArea(pin.latitude, pin.longitude) : null
 
   const canSubmit =
     images.length > 0 && rating > 0 && !!locationName.trim() && !!pin && !uploading
@@ -284,6 +303,24 @@ export default function NewPost() {
           </View>
         </View>
 
+        {/* ── シチュエーション ───────────────────── */}
+        <View style={{ gap: space.sm }}>
+          <View style={styles.labelRow}>
+            <Txt variant="smallMed" tone="muted">シチュエーション</Txt>
+            <Txt variant="small" tone="faint">複数選べます・任意</Txt>
+          </View>
+          <View style={styles.wrap}>
+            {SITUATIONS.map((s) => (
+              <Chip
+                key={s}
+                label={`${SITUATION_EMOJI[s]} ${s}`}
+                selected={situations.includes(s)}
+                onPress={() => toggleSituation(s)}
+              />
+            ))}
+          </View>
+        </View>
+
         {/* ── キャプション ─────────────────────── */}
         <Field
           label="ひとこと"
@@ -300,33 +337,72 @@ export default function NewPost() {
         <View style={{ gap: space.sm }}>
           <View style={styles.labelRow}>
             <Txt variant="smallMed" tone="muted">場所</Txt>
-            <Txt variant="small" tone="faint">地図をタップしてピンを置く</Txt>
+            {showMap && <Txt variant="small" tone="faint">地図をタップしてピンを置く</Txt>}
           </View>
 
-          <View style={[styles.mapBox, { borderColor: colors.border }]}>
-            <MapView
-              ref={mapRef}
-              provider={PROVIDER_GOOGLE}
-              style={{ flex: 1 }}
-              initialRegion={{
-                latitude: coords?.latitude ?? 35.6812,
-                longitude: coords?.longitude ?? 139.7671,
-                latitudeDelta: 0.02,
-                longitudeDelta: 0.02,
-              }}
-              showsUserLocation
-              showsMyLocationButton={false}
-              onPress={(e) => setPin(e.nativeEvent.coordinate)}
-            >
-              {pin && <Marker coordinate={pin} pinColor={colors.accent} />}
-            </MapView>
-          </View>
+          {/* 現在地でよければ地図を開かせない。
+              Google Maps は地図の読み込み1回ごとに課金されるため、
+              「調整する人だけが地図を開く」導線にしている。 */}
+          {!showMap ? (
+            <View style={[styles.locationCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons
+                name={pin ? 'location' : 'location-outline'}
+                size={20}
+                color={pin ? colors.geo : colors.textFaint}
+              />
+              <View style={{ flex: 1 }}>
+                {pin ? (
+                  <>
+                    <Txt variant="bodyMed">
+                      {areaPreview ? areaPreview.area.name : '現在地'}
+                    </Txt>
+                    <Txt variant="small" tone="muted">
+                      {areaPreview
+                        ? `${pin.latitude.toFixed(4)}, ${pin.longitude.toFixed(4)} 付近`
+                        : '地図で正確な位置を指定できます'}
+                    </Txt>
+                  </>
+                ) : (
+                  <Txt variant="small" tone="muted">
+                    現在地を取得できませんでした。地図から選んでください。
+                  </Txt>
+                )}
+              </View>
+              <Button
+                title="地図で調整"
+                variant="secondary"
+                style={{ height: 38, paddingHorizontal: space.md }}
+                onPress={() => setShowMap(true)}
+              />
+            </View>
+          ) : (
+            <View style={[styles.mapBox, { borderColor: colors.border }]}>
+              <MapView
+                ref={mapRef}
+                provider={PROVIDER_GOOGLE}
+                style={{ flex: 1 }}
+                initialRegion={{
+                  latitude: pin?.latitude ?? coords?.latitude ?? 35.6812,
+                  longitude: pin?.longitude ?? coords?.longitude ?? 139.7671,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                }}
+                showsUserLocation
+                showsMyLocationButton={false}
+                onPress={(e) => setPin(e.nativeEvent.coordinate)}
+              >
+                {pin && <Marker coordinate={pin} pinColor={colors.accent} />}
+              </MapView>
+            </View>
+          )}
 
           {pin ? (
             <View style={styles.labelRow}>
               <Ionicons name="checkmark-circle" size={16} color={colors.geo} />
               <Txt variant="small" tone="muted">
-                位置を設定しました（都道府県・市区町村は投稿時に自動判定）
+                {areaPreview
+                  ? `「${areaPreview.area.name}」として地図に載ります`
+                  : '都道府県は投稿時に自動判定します'}
               </Txt>
             </View>
           ) : (
@@ -395,6 +471,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   mapBox: { height: 220, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1 },
+  locationCard: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md,
+    padding: space.md, borderRadius: radius.md, borderWidth: 1,
+  },
   publicRow: {
     flexDirection: 'row', alignItems: 'center', gap: space.md,
     padding: space.md, borderRadius: radius.md, borderWidth: 1,

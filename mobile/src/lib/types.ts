@@ -32,7 +32,10 @@ export interface Post {
   is_public: boolean
   prefecture: string | null
   city: string | null
-  station: string | null
+  /** 地図の第2階層。「新宿」「すすきの」など。内蔵データから決まる */
+  area: string | null
+  /** 「デート」「女子会」など。複数選択 */
+  situations: string[]
   hashtags: string[]
   likes_count: number
   comments_count: number
@@ -44,10 +47,10 @@ export interface Post {
 
 /**
  * 地図のドリルダウン階層。
- * DB には station 列も残してあるが、Places API の単価が高いため
- * アプリでは 県 → 市区町村 の2段のみを使う。
+ * 第2階層の「エリア」は主要駅・繁華街（新宿・すすきの・河原町 など）で、
+ * 内蔵の座標データから判定するため API を消費しない。
  */
-export type RegionLevel = 'prefecture' | 'city'
+export type RegionLevel = 'prefecture' | 'area'
 
 export interface RegionCount {
   name: string

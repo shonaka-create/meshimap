@@ -156,3 +156,35 @@ export const PRICE_RANGES = [
 ] as const
 
 export type PriceRange = (typeof PRICE_RANGES)[number]
+
+/**
+ * シチュエーション。「何を食べたか」ではなく「どんな場面で使えるか」の軸。
+ * ジャンルや価格帯では拾えない探し方（デートで使える店、一人で入れる店）を補う。
+ */
+export const SITUATIONS = [
+  'デート',
+  'ランチにおすすめ',
+  '一人ランチにおすすめ',
+  '女子会',
+  '飲み会',
+  '家族で',
+  '仕事で',
+  '記念日',
+  '夜景が見える',
+  '隠れ家',
+] as const
+
+export type Situation = (typeof SITUATIONS)[number]
+
+export const SITUATION_EMOJI: Record<string, string> = {
+  デート: '💕',
+  ランチにおすすめ: '🍽️',
+  一人ランチにおすすめ: '🧍',
+  女子会: '🥂',
+  飲み会: '🍻',
+  家族で: '👨‍👩‍👧',
+  仕事で: '💼',
+  記念日: '🎉',
+  夜景が見える: '🌃',
+  隠れ家: '🚪',
+}

@@ -5,7 +5,9 @@ import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
-import { useTheme, space, radius, shadow, GENRE_EMOJI, GENRES } from '../../src/theme'
+import {
+  useTheme, space, radius, shadow, GENRE_EMOJI, GENRES, SITUATIONS, SITUATION_EMOJI,
+} from '../../src/theme'
 import { Txt, Chip } from '../../src/components/ui'
 import { useLocation } from '../../src/hooks/useLocation'
 import type { Post, RegionCount, RegionLevel } from '../../src/lib/types'
@@ -22,15 +24,15 @@ const JAPAN: Region = {
 
 /**
  * ドリルダウンの現在位置。
- * 県 → 市区町村 の2段。市区町村を選ぶと個々の投稿ピンに切り替わる。
+ * 県 → エリア（主要駅・繁華街）の2段。エリアを選ぶと個々の投稿ピンに切り替わる。
  */
 type Drill =
   | { level: 'prefecture' }
-  | { level: 'city'; prefecture: string }
+  | { level: 'area'; prefecture: string }
 
 const LEVEL_LABEL: Record<RegionLevel, string> = {
   prefecture: '都道府県',
-  city: '市区町村',
+  area: 'エリア',
 }
 
 export default function HomeMap() {
@@ -43,9 +45,10 @@ export default function HomeMap() {
   const [drill, setDrill] = useState<Drill>({ level: 'prefecture' })
   const [regions, setRegions] = useState<RegionCount[]>([])
   const [posts, setPosts] = useState<Post[]>([])
-  /** 投稿ピンを表示している市区町村。null なら地域バブル表示中。 */
-  const [openCity, setOpenCity] = useState<string | null>(null)
+  /** 投稿ピンを表示しているエリア。null なら地域バブル表示中。 */
+  const [openArea, setOpenArea] = useState<string | null>(null)
   const [genre, setGenre] = useState<string>('すべて')
+  const [situation, setSituation] = useState<string | null>(null)
   const [loadingRegions, setLoadingRegions] = useState(true)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
 
@@ -69,8 +72,7 @@ export default function HomeMap() {
       setLoadingRegions(true)
       const { data, error } = await supabase.rpc('post_counts_by_region', {
         p_level: drill.level,
-        p_prefecture: drill.level === 'city' ? drill.prefecture : null,
-        p_city: null,
+        p_prefecture: drill.level === 'area' ? drill.prefecture : null,
       })
       if (cancelled) return
 
@@ -87,14 +89,16 @@ export default function HomeMap() {
     return () => { cancelled = true }
   }, [drill])
 
-  /* ── 市区町村を選んだら、その中の投稿を取得 ───────────── */
-  const loadPostsForCity = useCallback(
-    async (prefecture: string, city: string) => {
+  /* ── エリアを選んだら、その中の投稿を取得 ───────────── */
+  const loadPostsForArea = useCallback(
+    async (prefecture: string, area: string) => {
+      // area が NULL の投稿は RPC 側で city を代わりに使っているので、
+      // 取得側も同じ条件（area = X または area が空で city = X）で拾う。
       const { data, error } = await supabase
         .from('posts')
         .select(POST_SELECT)
         .eq('prefecture', prefecture)
-        .eq('city', city)
+        .or(`area.eq.${area},and(area.is.null,city.eq.${area})`)
         .order('created_at', { ascending: false })
         .limit(200)
 
@@ -103,7 +107,7 @@ export default function HomeMap() {
         return
       }
       setPosts((data ?? []).map(toPost))
-      setOpenCity(city)
+      setOpenArea(area)
     },
     []
   )
@@ -119,27 +123,27 @@ export default function HomeMap() {
       )
 
       if (drill.level === 'prefecture') {
-        setDrill({ level: 'city', prefecture: r.name })
+        setDrill({ level: 'area', prefecture: r.name })
       } else {
-        // 最下層。市区町村を選んだので個々の投稿ピンに切り替える
-        loadPostsForCity(drill.prefecture, r.name)
+        // 最下層。エリアを選んだので個々の投稿ピンに切り替える
+        loadPostsForArea(drill.prefecture, r.name)
       }
     },
-    [drill, loadPostsForCity]
+    [drill, loadPostsForArea]
   )
 
   /* ── パンくずで上の階層へ戻る ───────────────────── */
   const goToPrefectures = useCallback(() => {
     setPosts([])
-    setOpenCity(null)
+    setOpenArea(null)
     setSelectedPost(null)
     setDrill({ level: 'prefecture' })
     mapRef.current?.animateToRegion(JAPAN, 600)
   }, [])
 
-  const goToCities = useCallback(() => {
+  const goToAreas = useCallback(() => {
     setPosts([])
-    setOpenCity(null)
+    setOpenArea(null)
     setSelectedPost(null)
   }, [])
 
@@ -154,8 +158,11 @@ export default function HomeMap() {
   }, [coords, locate])
 
   const visiblePosts = useMemo(
-    () => (genre === 'すべて' ? posts : posts.filter((p) => p.genre === genre)),
-    [posts, genre]
+    () =>
+      posts
+        .filter((p) => genre === 'すべて' || p.genre === genre)
+        .filter((p) => !situation || (p.situations ?? []).includes(situation)),
+    [posts, genre, situation]
   )
 
   const totalCount = useMemo(
@@ -164,7 +171,7 @@ export default function HomeMap() {
   )
 
   // 投稿ピンを出している間は地域バブルを隠す（画面を1階層だけに保つ）
-  const showRegionBubbles = openCity === null
+  const showRegionBubbles = openArea === null
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -216,20 +223,20 @@ export default function HomeMap() {
               active={drill.level === 'prefecture'}
               onPress={goToPrefectures}
             />
-            {drill.level === 'city' && (
+            {drill.level === 'area' && (
               <>
                 <Ionicons name="chevron-forward" size={14} color={colors.textFaint} />
                 <Crumb
                   label={drill.prefecture}
-                  active={openCity === null}
-                  onPress={goToCities}
+                  active={openArea === null}
+                  onPress={goToAreas}
                 />
               </>
             )}
-            {openCity && (
+            {openArea && (
               <>
                 <Ionicons name="chevron-forward" size={14} color={colors.textFaint} />
-                <Crumb label={openCity} active onPress={() => {}} />
+                <Crumb label={openArea} active onPress={() => {}} />
               </>
             )}
           </View>
@@ -239,7 +246,7 @@ export default function HomeMap() {
               <ActivityIndicator size="small" color={colors.textFaint} />
             ) : (
               <Txt variant="small" tone="muted">
-                {openCity
+                {openArea
                   ? `${visiblePosts.length}件の投稿`
                   : `${LEVEL_LABEL[drill.level]}別 · ${regions.length}地域 · 計${totalCount}件`}
               </Txt>
@@ -247,23 +254,41 @@ export default function HomeMap() {
           </View>
         </View>
 
-        {/* 投稿ピン表示中のみジャンル絞り込みを出す */}
-        {openCity && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.genreRow}
-          >
-            <Chip label="すべて" selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
-            {GENRES.map((g) => (
-              <Chip
-                key={g}
-                label={`${GENRE_EMOJI[g]} ${g}`}
-                selected={genre === g}
-                onPress={() => setGenre(g)}
-              />
-            ))}
-          </ScrollView>
+        {/* 投稿ピン表示中のみ絞り込みを出す */}
+        {openArea && (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.genreRow}
+            >
+              <Chip label="すべて" selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
+              {GENRES.map((g) => (
+                <Chip
+                  key={g}
+                  label={`${GENRE_EMOJI[g]} ${g}`}
+                  selected={genre === g}
+                  onPress={() => setGenre(g)}
+                />
+              ))}
+            </ScrollView>
+
+            {/* シチュエーション: ジャンルでは拾えない「どんな場面で使うか」の軸 */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.genreRow}
+            >
+              {SITUATIONS.map((s) => (
+                <Chip
+                  key={s}
+                  label={`${SITUATION_EMOJI[s]} ${s}`}
+                  selected={situation === s}
+                  onPress={() => setSituation(situation === s ? null : s)}
+                />
+              ))}
+            </ScrollView>
+          </>
         )}
       </View>
 

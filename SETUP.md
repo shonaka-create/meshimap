@@ -22,6 +22,7 @@
 |---|---|---|
 | 1 | `supabase/schema.sql` | テーブル・Storage・基本RLS（**初回のみ**） |
 | 2 | `supabase/migrations/0001_accounts_privacy_regions.sql` | ユーザーID/公開設定/地域集計/通報・ブロック |
+| 3 | `supabase/migrations/0002_areas_and_situations.sql` | エリア階層（station→area）とシチュエーション |
 
 `0001` は `BEGIN; … COMMIT;` で囲んであるため、**途中で失敗しても何も適用されません**。
 また冪等なので、何度実行しても壊れません。
