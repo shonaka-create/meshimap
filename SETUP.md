@@ -25,6 +25,13 @@
 | 3 | `supabase/migrations/0002_areas_and_situations.sql` | エリア階層（station→area）とシチュエーション |
 | 4 | `supabase/migrations/0003_admin.sql` | 運営（管理者）アカウントと通報の審査 |
 | 5 | `supabase/migrations/0004_ranks_and_map_pins.sql` | ランク・アバター絵柄・地図のアイコン |
+| 6 | `supabase/migrations/0005_admin_pin_and_follow_limit.sql` | 運営アカウントの常時表示とフォロー上限（無料2人） |
+
+> ⚠ **6 まで必ず実行してください。**
+> `schema.sql` は開発初期のテーブル定義で、そこで止めると `username`・公開設定・
+> 地域列・ランク列・ブロック/通報・各 RPC が存在せず、登録も地図も動きません。
+> さらに `schema.sql` の RLS は `USING (true)`（全員が読める）のままなので、
+> 途中で止めると**非公開のはずの投稿が第三者に見えます**。
 
 いずれも `BEGIN; … COMMIT;` で囲んであるため、**途中で失敗しても何も適用されません**。
 また冪等なので、何度実行しても壊れません。
@@ -48,6 +55,12 @@
 - 管理者が読めるのは「通報が付いた投稿」だけ。全ての非公開投稿は読めない
 - アプリ側から自分を管理者に昇格できないよう、`is_admin` の変更を
   トリガーで差し戻す（SQL Editor からの操作だけ通す）
+
+`0005` が行うこと:
+
+- 運営（`is_admin`）アカウントを、フォローの有無に関わらず地図に必ず表示する
+- 新規登録時に運営を自動フォローする（`handle_new_user()` を置き換え）
+- 無料プランのフォロー上限を 2 人にする（運営は上限に数えない）
 
 `0004` が行うこと（Snap Map 風のアイコンとランク）:
 
@@ -164,12 +177,21 @@ npm run dev   # http://localhost:3000
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://ceohkxunpotitdbyyxyl.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=＜anon public キー＞
+
+# 地図表示（Leaflet/OpenStreetMap を使っているため、現時点では未使用）
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=＜Web用の鍵（HTTPリファラ制限）＞
+
+# 任意。投稿地点の市区町村を Google Geocoding で補うときだけ設定する。
+# ブラウザには出さない（NEXT_PUBLIC_ を付けない）こと。
+# Geocoding はリファラ制限が効かないため、公開鍵を使うと請求を肩代わりさせられる。
+# 未設定でも内蔵の225エリアで判定は動く（市区町村名が入らないだけ）。
+GOOGLE_GEOCODING_KEY=＜サーバー専用の鍵（IP制限）＞
 ```
 
-> Web 版は `0001` 移行の適用後、`username` / `is_public` を扱わないため
-> 表示や公開範囲が iOS 版と食い違います。iOS を主軸にするなら、
-> Web 版は管理用途に絞るか、同様の対応を入れてください。
+> Web 版は登録時に `username` / `display_name` を iOS 版と同じ契約で送るようになりました。
+> ただし投稿ごとの公開/非公開の切り替え UI はまだ iOS 版にしかありません。
+> `posts.is_public` の既定は `false`（非公開）なので、Web からの投稿は
+> 非公開で作成され、公開したい場合は iOS 版から切り替えてください。
 
 ---
 

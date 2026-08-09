@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "seed": "node scripts/seed.mjs"
+    "check:regions": "node scripts/check-regions-sync.mjs",
+    "seed": "node scripts/seed.mjs",
+    "backfill:regions": "node scripts/backfill-regions.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",

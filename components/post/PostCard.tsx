@@ -78,13 +78,13 @@ export default function PostCard({ post }: PostCardProps) {
         const { error } = await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id)
         if (error) throw error
       }
-      // DB の likes_count をインクリメント/デクリメント（現在値を取得してから更新）
+
+      // posts.likes_count は DB トリガー trg_like_counts が likes 行の
+      // INSERT / DELETE で増減させる。ここで足すと1回のいいねで2動く。
+      // 表示は楽観的更新のままでよいが、他の人のいいねも反映したいので
+      // 確定値だけ取り直す。
       const { data: fresh } = await supabase.from('posts').select('likes_count').eq('id', post.id).single()
-      const freshCount = (fresh?.likes_count as number) ?? 0
-      const newCount = Math.max(0, freshCount + delta)
-      const { error: updateError } = await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id)
-      if (updateError) throw updateError
-      setLikesCount(newCount)
+      if (fresh) setLikesCount((fresh.likes_count as number) ?? 0)
     } catch (err) {
       // ロールバック
       setLiked(!newLiked)
@@ -97,10 +97,14 @@ export default function PostCard({ post }: PostCardProps) {
   const submitComment = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user || !commentText.trim()) return
-    const { data } = await supabase.from('comments')
+    const { data, error } = await supabase.from('comments')
       .insert({ post_id: post.id, user_id: user.id, text: commentText })
       .select('*, profiles!comments_user_id_fkey(display_name, photo_url)')
       .single()
+    if (error) {
+      console.error('[PostCard] コメントの投稿に失敗しました', error)
+      return
+    }
     if (data) {
       setComments((prev) => [...prev, {
         id: data.id,
@@ -111,7 +115,8 @@ export default function PostCard({ post }: PostCardProps) {
         text: data.text,
         createdAt: new Date(data.created_at),
       }])
-      await supabase.from('posts').update({ comments_count: commentsCount + 1 }).eq('id', post.id)
+      // likes と同様、posts.comments_count は trg_comment_counts が加算する。
+      // ここで update すると1コメントで2増える。
       setCommentsCount((c) => c + 1)
     }
     setCommentText('')

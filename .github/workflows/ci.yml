@@ -34,6 +34,11 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # 地域データは Web と Mobile で実体を複製している（別 npm プロジェクトのため）。
+      # 片方だけ更新されると同じ座標が別エリアとして集計されるので、ここで止める。
+      - name: Region data in sync
+        run: npm run check:regions
+
   # モバイル（Expo）は独立した npm プロジェクト。
   # ネイティブビルドは EAS 側に任せ、ここでは型チェックのみ回す。
   mobile:

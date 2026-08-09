@@ -7,10 +7,16 @@ import type { User } from '@supabase/supabase-js'
 interface AuthContextType {
   user: User | null
   loading: boolean
-  signUp: (email: string, password: string, displayName: string) => Promise<User>
+  signUp: (args: {
+    email: string
+    password: string
+    username: string
+    displayName: string
+  }) => Promise<{ needsEmailConfirm: boolean }>
   signIn: (email: string, password: string) => Promise<unknown>
   signInWithGoogle: () => Promise<void>
   logOut: () => Promise<void>
+  isUsernameAvailable: (username: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)

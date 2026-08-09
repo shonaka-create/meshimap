@@ -1,22 +1,21 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase, supabaseUrl } from '@/lib/supabase'
 
-async function ensureProfile(user: User) {
-  const { data } = await supabase.from('profiles').select('id').eq('id', user.id).single()
-  if (!data) {
-    await supabase.from('profiles').insert({
-      id: user.id,
-      display_name:
-        user.user_metadata?.full_name ??
-        user.user_metadata?.name ??
-        user.email?.split('@')[0] ??
-        '名無し',
-      photo_url: user.user_metadata?.avatar_url ?? null,
-    })
-  }
+/**
+ * ユーザーID の形式チェック。
+ * DB 側の CHECK 制約 `username ~ '^[a-z]{3,20}$'`（0001）と同じ条件を
+ * 手前で見て、日本語のメッセージにして返す。
+ * mobile/src/hooks/useAuth.tsx の同名関数と規則を揃えること。
+ */
+export function validateUsername(v: string): string | null {
+  if (!v) return 'ユーザーIDを入力してください'
+  if (/[^a-z]/.test(v)) return 'ユーザーIDは小文字のアルファベットのみ使えます'
+  if (v.length < 3) return 'ユーザーIDは3文字以上にしてください'
+  if (v.length > 20) return 'ユーザーIDは20文字以内にしてください'
+  return null
 }
 
 /**
@@ -73,13 +72,13 @@ export function useAuth() {
     // ② onAuthStateChange で正確なセッション状態に更新
     //    INITIAL_SESSION: Navigator Lock 解放後に発火（遅延あり）
     //    SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED: リアルタイム更新
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    //    profiles 行は auth.users への INSERT トリガー handle_new_user() が作る。
+    //    ここでクライアントから作りにいくと username(NOT NULL・形式制約あり) を
+    //    満たせず、トリガーが入れた行と競合するだけなので何もしない。
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return
       setUser(session?.user ?? null)
       setLoading(false)
-      if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-        ensureProfile(session.user)
-      }
     })
 
     // ③ フォールバック: 万が一 onAuthStateChange が発火しない場合に解除
@@ -94,20 +93,55 @@ export function useAuth() {
     }
   }, [])
 
-  const signUp = async (email: string, password: string, displayName: string) => {
+  const isUsernameAvailable = useCallback(async (username: string) => {
+    const { data, error } = await supabase.rpc('is_username_available', {
+      p_username: username,
+    })
+    if (error) {
+      console.warn('[useAuth] ユーザーID確認に失敗', error.message)
+      return false
+    }
+    return data === true
+  }, [])
+
+  /**
+   * 新規登録。
+   *
+   * ★ options.data に渡したキーだけが handle_new_user() トリガー（0005）に読まれ、
+   *   profiles へ転記される。読まれるのは username と display_name の2つ。
+   *   以前ここは full_name を送っていたため、トリガーが display_name を見つけられず
+   *   自動採番の userxxxx が表示名になっていた。mobile と同じ契約に揃えてある。
+   *
+   * profiles への upsert は行わない。トリガーが先に行を作るので後追いの
+   * upsert は必ず素通りし、「保存されたつもり」を生むだけだった。
+   */
+  const signUp = async (args: {
+    email: string
+    password: string
+    username: string
+    displayName: string
+  }) => {
+    const normalized = args.username.trim().toLowerCase()
+
+    const formatError = validateUsername(normalized)
+    if (formatError) throw new Error(formatError)
+    if (!args.displayName.trim()) throw new Error('アカウント名を入力してください')
+
+    // 事前チェック。ここを通っても同時登録で衝突しうるので、
+    // 最終的な一意性は DB の UNIQUE 制約が保証する。
+    if (!(await isUsernameAvailable(normalized))) {
+      throw new Error('このユーザーIDは既に使われています')
+    }
+
     const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: displayName } },
+      email: args.email.trim(),
+      password: args.password,
+      options: { data: { username: normalized, display_name: args.displayName.trim() } },
     })
     if (error) throw error
-    if (data.user) {
-      await supabase.from('profiles').upsert(
-        { id: data.user.id, display_name: displayName },
-        { onConflict: 'id', ignoreDuplicates: true }
-      )
-    }
-    return data.user!
+
+    // メール確認が有効な場合、session は null になる
+    return { needsEmailConfirm: !data.session }
   }
 
   const signIn = async (email: string, password: string) => {
@@ -128,5 +162,5 @@ export function useAuth() {
     await supabase.auth.signOut()
   }
 
-  return { user, loading, signUp, signIn, signInWithGoogle, logOut }
+  return { user, loading, signUp, signIn, signInWithGoogle, logOut, isUsernameAvailable }
 }

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, ImagePlus, MapPin, Star } from 'lucide-react'
 import type { FoodGenre, PriceRange } from '@/types'
 import dynamic from 'next/dynamic'
 import { GENRE_META } from '@/lib/genreMeta'
 import { supabase } from '@/lib/supabase'
+import { resolveRegion } from '@/lib/geocode'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 
 const LocationPicker = dynamic(() => import('./LocationPicker'), { ssr: false })
@@ -40,10 +41,25 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // createObjectURL で作った Blob URL は revoke するまで元画像がメモリに残る。
+  // 選び直し・削除・アンマウントのすべてで解放する。
+  const revoke = (urls: string[]) => urls.forEach((u) => URL.revokeObjectURL(u))
+
+  const previewsRef = useRef<string[]>([])
+  previewsRef.current = previews
+  useEffect(() => () => revoke(previewsRef.current), [])
+
   const handleImages = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []).slice(0, 5)
+    revoke(previews)
     setImages(files)
     setPreviews(files.map((f) => URL.createObjectURL(f)))
+  }
+
+  const removeImage = (i: number) => {
+    URL.revokeObjectURL(previews[i])
+    setImages(images.filter((_, j) => j !== i))
+    setPreviews(previews.filter((_, j) => j !== i))
   }
 
   const extractHashtags = (text: string) =>
@@ -62,9 +78,19 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
     if (images.length === 0) { setError('写真を選択してください'); return }
     setUploading(true)
     setError('')
-    setUploadStep('投稿を作成中...')
+
+    // 途中で失敗したときに取り消す対象。投稿は「全部そろって成立」にする。
+    let createdPostId: string | null = null
+    const uploadedPaths: string[] = []
+
     try {
-      // 1. 投稿レコードを作成
+      // 1. 都道府県とエリアを決める（地図の階層集計とエリア実績に使う）。
+      //    内蔵データで決まればここで API は一切消費しない。
+      setUploadStep('場所を確認中...')
+      const region = await resolveRegion(locationCoords.lat, locationCoords.lng)
+
+      // 2. 投稿レコードを作成
+      setUploadStep('投稿を作成中...')
       const { data: post, error: postError } = await withTimeout(
         supabase.from('posts').insert({
           user_id: user.id,
@@ -75,14 +101,20 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
           location_name: locationName,
           location_lat: locationCoords.lat,
           location_lng: locationCoords.lng,
+          // mobile と同じ3列を必ず入れる。ここが空だと
+          // 都道府県→エリアの集計にも areas_count にも載らない。
+          prefecture: region.prefecture,
+          city: region.city,
+          area: region.area,
           hashtags: extractHashtags(caption),
         }).select().single(),
         15000
       )
 
       if (postError || !post) throw postError ?? new Error('投稿レコードの作成に失敗しました')
+      createdPostId = post.id
 
-      // 2. 画像を Storage にアップロードして post_images に保存
+      // 3. 画像を Storage にアップロードして post_images に保存
       for (let i = 0; i < images.length; i++) {
         setUploadStep(`画像をアップロード中... (${i + 1}/${images.length})`)
         const file = images[i]
@@ -92,17 +124,20 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
           30000
         )
         if (uploadError) throw uploadError
+        uploadedPaths.push(uploaded.path)
+
         const { data: { publicUrl } } = supabase.storage.from('post-images').getPublicUrl(uploaded.path)
-        await withTimeout(
+        // Supabase の query は DB エラーを throw せず { error } で返す。
+        // 見ないと、画像行が作られていないのに「投稿しました！」になる。
+        const { error: imageError } = await withTimeout(
           supabase.from('post_images').insert({ post_id: post.id, url: publicUrl, position: i }),
           10000
         )
+        if (imageError) throw imageError
       }
 
-      // 3. プロフィールの投稿数を更新
-      setUploadStep('仕上げ中...')
-      const { data: profile } = await supabase.from('profiles').select('posts_count').eq('id', user.id).single()
-      await supabase.from('profiles').update({ posts_count: (profile?.posts_count ?? 0) + 1 }).eq('id', user.id)
+      // profiles.posts_count は DB トリガー trg_post_counts が
+      // posts の INSERT で加算する。ここで足すと1投稿で2増える。
 
       setDone(true)
       setTimeout(() => {
@@ -111,6 +146,24 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
         router.refresh()
       }, 1200)
     } catch (err) {
+      // 作りかけを消す。これをやらないと「投稿に失敗」と出ているのに
+      // 画像なしの投稿が残り、押し直すたびに増えていく。
+      // posts を消せば post_images は ON DELETE CASCADE で消え、
+      // posts_count もトリガーが戻すので、投稿前の状態に戻る。
+      setUploadStep('取り消し中...')
+      try {
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from('post-images').remove(uploadedPaths)
+        }
+        if (createdPostId) {
+          await supabase.from('posts').delete().eq('id', createdPostId)
+        }
+      } catch (cleanupErr) {
+        // 取り消しにも失敗した場合は元のエラーを優先して見せる。
+        // 残骸は残るが、利用者にできることはないのでログだけ残す。
+        console.error('[CreatePostModal] 失敗した投稿の取り消しに失敗しました', cleanupErr)
+      }
+
       const raw = err as { message?: string; details?: string; hint?: string } | null
       const msg = raw?.message ?? raw?.details ?? JSON.stringify(err)
       setError(msg || '投稿に失敗しました。もう一度お試しください。')
@@ -164,7 +217,7 @@ export default function CreatePostModal({ onClose, onSuccess }: CreatePostModalP
                   {previews.map((p, i) => (
                     <div key={i} className="relative aspect-square">
                       <img src={p} alt="" className="w-full h-full object-cover rounded-xl" />
-                      <button onClick={() => { setImages(images.filter((_, j) => j !== i)); setPreviews(previews.filter((_, j) => j !== i)) }}
+                      <button onClick={() => removeImage(i)}
                         className="absolute top-1 right-1 w-5 h-5 bg-black/50 rounded-full flex items-center justify-center">
                         <X className="w-3 h-3 text-white" />
                       </button>

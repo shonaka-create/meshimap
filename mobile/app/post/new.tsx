@@ -116,6 +116,11 @@ export default function NewPost() {
     if (!user || !pin || images.length === 0 || rating === 0 || !locationName.trim()) return
 
     setUploading(true)
+
+    // 途中で失敗したときに取り消す対象。投稿は「全部そろって成立」にする。
+    let createdPostId: string | null = null
+    const uploadedPaths: string[] = []
+
     try {
       // 1. 都道府県とエリアを決める（地図の階層集計に使う）。
       //    内蔵データで決まればここで API は一切消費しない。
@@ -148,6 +153,7 @@ export default function NewPost() {
         .single()
 
       if (postErr || !post) throw postErr ?? new Error('投稿の作成に失敗しました')
+      createdPostId = post.id
 
       // 3. 画像を縮小してアップロード
       for (let i = 0; i < images.length; i++) {
@@ -169,6 +175,7 @@ export default function NewPost() {
           .from('post-images')
           .upload(path, bytes, { contentType: 'image/jpeg', upsert: true })
         if (upErr) throw upErr
+        uploadedPaths.push(path)
 
         const { data: pub } = supabase.storage.from('post-images').getPublicUrl(path)
         const { error: imgErr } = await supabase
@@ -193,6 +200,23 @@ export default function NewPost() {
         },
       })
     } catch (e) {
+      // 作りかけを消す。これをやらないと「投稿に失敗」と出ているのに
+      // 画像なしの投稿が残り、押し直すたびに増えていく。
+      // posts を消せば post_images は ON DELETE CASCADE で消え、
+      // posts_count もトリガーが戻すので、投稿前の状態に戻る。
+      setProgress('取り消しています…')
+      try {
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from('post-images').remove(uploadedPaths)
+        }
+        if (createdPostId) {
+          await supabase.from('posts').delete().eq('id', createdPostId)
+        }
+      } catch (cleanupErr) {
+        // 取り消しにも失敗した場合は元のエラーを優先して見せる。
+        console.warn('[new] 失敗した投稿の取り消しに失敗しました', cleanupErr)
+      }
+
       Alert.alert('投稿に失敗しました', (e as Error)?.message ?? '不明なエラー')
     } finally {
       setUploading(false)

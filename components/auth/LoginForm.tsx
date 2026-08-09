@@ -1,20 +1,44 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuthContext } from './AuthProvider'
+import { validateUsername } from '@/hooks/useAuth'
 import { supabaseUrl } from '@/lib/supabase'
-import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
+import { Mail, Lock, User, AtSign, Eye, EyeOff } from 'lucide-react'
+
+type Availability = 'idle' | 'checking' | 'free' | 'taken' | 'invalid'
 
 export default function LoginForm() {
-  const { signIn, signUp } = useAuthContext()
+  const { signIn, signUp, isUsernameAvailable } = useAuthContext()
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [username, setUsername] = useState('')
+  const [availability, setAvailability] = useState<Availability>('idle')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [verifyMessage, setVerifyMessage] = useState('')
+  const checkSeq = useRef(0)
+
+  const usernameError = username ? validateUsername(username) : null
+
+  // ユーザーIDの空き確認。入力が止まってから問い合わせる。
+  useEffect(() => {
+    if (mode !== 'signup' || !username) { setAvailability('idle'); return }
+    if (usernameError) { setAvailability('invalid'); return }
+
+    setAvailability('checking')
+    const seq = ++checkSeq.current
+    const timer = setTimeout(async () => {
+      const free = await isUsernameAvailable(username)
+      // 入力が進んでいたら古い結果は捨てる
+      if (seq !== checkSeq.current) return
+      setAvailability(free ? 'free' : 'taken')
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [mode, username, usernameError, isUsernameAvailable])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,9 +48,13 @@ export default function LoginForm() {
       if (mode === 'login') {
         await signIn(email, password)
       } else {
-        if (!displayName.trim()) { setError('ユーザー名を入力してください'); setLoading(false); return }
-        await signUp(email, password, displayName)
-        setVerifyMessage('確認メールを送信しました。メールのリンクをクリックしてログインしてください。')
+        if (!displayName.trim()) { setError('アカウント名を入力してください'); setLoading(false); return }
+        const formatError = validateUsername(username)
+        if (formatError) { setError(formatError); setLoading(false); return }
+        const { needsEmailConfirm } = await signUp({ email, password, username, displayName })
+        if (needsEmailConfirm) {
+          setVerifyMessage('確認メールを送信しました。メールのリンクをクリックしてログインしてください。')
+        }
       }
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? ''
@@ -88,11 +116,34 @@ export default function LoginForm() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                <input type="text" placeholder="ユーザー名" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
-              </div>
+              <>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
+                  <input type="text" placeholder="アカウント名（表示される名前）" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+                    maxLength={30}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
+                </div>
+                <div>
+                  <div className="relative">
+                    <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
+                    <input type="text" placeholder="ユーザーID（例: meshitaro）" value={username}
+                      // 大文字で打たれても黙って小文字に直す。弾くよりストレスが少ない。
+                      onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
+                      autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={20}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm" required />
+                  </div>
+                  <p className={`text-xs mt-1.5 px-1 ${
+                    usernameError || availability === 'taken' ? 'text-red-500'
+                      : availability === 'free' ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {usernameError
+                      ?? (availability === 'taken' ? 'このユーザーIDは既に使われています'
+                        : availability === 'checking' ? '確認中...'
+                        : availability === 'free' ? '✓ このユーザーIDは使えます'
+                        : '小文字のアルファベット3〜20文字。あとから変更できます。')}
+                  </p>
+                </div>
+              </>
             )}
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
@@ -110,7 +161,8 @@ export default function LoginForm() {
 
             {error && <p className="text-red-500 text-xs text-center">{error}</p>}
 
-            <button type="submit" disabled={loading}
+            <button type="submit"
+              disabled={loading || (mode === 'signup' && (!!usernameError || availability === 'taken' || availability === 'checking'))}
               className="w-full py-3 bg-gradient-to-r from-orange-400 to-rose-500 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50">
               {loading ? '処理中...' : mode === 'login' ? 'ログイン' : '登録する'}
             </button>
