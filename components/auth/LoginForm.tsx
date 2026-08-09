@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAuthContext } from './AuthProvider'
+import { supabaseUrl } from '@/lib/supabase'
 import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
 
 export default function LoginForm() {
@@ -35,7 +36,13 @@ export default function LoginForm() {
         setError('このメールアドレスは既に使用されています')
       } else if (msg.includes('Password should be')) {
         setError('パスワードは6文字以上で入力してください')
+      } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch failed')) {
+        // 接続先の Supabase に届いていない。認証情報の問題と紛らわしいので分けて出す。
+        // （過去に、消したプロジェクトの URL を向いたままでこれが出た）
+        console.error('[LoginForm] Supabase に接続できません。接続先:', supabaseUrl, err)
+        setError('サーバーに接続できませんでした。通信環境をご確認ください')
       } else {
+        console.error('[LoginForm] 想定外のログインエラー:', err)
         setError('エラーが発生しました。もう一度お試しください')
       }
     } finally {
