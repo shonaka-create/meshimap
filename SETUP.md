@@ -23,8 +23,9 @@
 | 1 | `supabase/schema.sql` | テーブル・Storage・基本RLS（**初回のみ**） |
 | 2 | `supabase/migrations/0001_accounts_privacy_regions.sql` | ユーザーID/公開設定/地域集計/通報・ブロック |
 | 3 | `supabase/migrations/0002_areas_and_situations.sql` | エリア階層（station→area）とシチュエーション |
+| 4 | `supabase/migrations/0003_admin.sql` | 運営（管理者）アカウントと通報の審査 |
 
-`0001` は `BEGIN; … COMMIT;` で囲んであるため、**途中で失敗しても何も適用されません**。
+いずれも `BEGIN; … COMMIT;` で囲んであるため、**途中で失敗しても何も適用されません**。
 また冪等なので、何度実行しても壊れません。
 
 `0001` が行うこと:
@@ -38,6 +39,14 @@
 - 投稿・フォロー・いいね・コメントのカウンタを**トリガー化**
   （従来はクライアント側の手動 UPDATE で、同時操作時にズレるバグがあった）
 - RLS を貼り直し、**非公開投稿が第三者に見えないよう**修正
+
+`0003` が行うこと:
+
+- `profiles.is_admin` を追加し、**運営だけが通報を閲覧・対応できる**ようにする
+  （0001 の時点では通報者本人しか読めず、**誰も審査できない**状態だった）
+- 管理者が読めるのは「通報が付いた投稿」だけ。全ての非公開投稿は読めない
+- アプリ側から自分を管理者に昇格できないよう、`is_admin` の変更を
+  トリガーで差し戻す（SQL Editor からの操作だけ通す）
 
 ### 1-2. Authentication
 
@@ -85,8 +94,11 @@ EXPO_PUBLIC_GOOGLE_GEOCODING_KEY=＜Geocoding用の鍵＞
 | API | 用途 | 無いとどうなるか |
 |---|---|---|
 | Maps SDK for iOS | 地図表示 | 地図が真っ白になる |
-| Geocoding API | 都道府県・市区町村の判定 | 地図の階層集計が空になる |
-| Places API | 最寄り駅の判定 | 駅レベルだけ空になる（他は動く） |
+| Geocoding API | 主要エリア外の地点の判定 | その地点だけ最寄りの県で埋められる |
+
+> **Places API は有効化しません。** 都道府県・エリアの判定は
+> `mobile/src/lib/regions.ts` の内蔵データ（47県 + 主要144エリア）で行います。
+> 主要都市の投稿はこれだけで解決するため、Geocoding API もほとんど呼ばれません。
 
 ### 2-3. アイコンを配置
 
@@ -127,6 +139,49 @@ NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=＜Web用の鍵（HTTPリファラ制限）＞
 > Web 版は `0001` 移行の適用後、`username` / `is_public` を扱わないため
 > 表示や公開範囲が iOS 版と食い違います。iOS を主軸にするなら、
 > Web 版は管理用途に絞るか、同様の対応を入れてください。
+
+---
+
+## 4. デモデータと運営アカウント
+
+新しい Supabase プロジェクトは空なので、動作確認用のデータを入れます。
+
+**先に** Authentication → **Sign In / Providers → Confirm email を OFF** にしてください。
+確認メールが必要な状態だと、スクリプトがサインインできません。
+
+```bash
+SEED_PASSWORD='デモ用の適当なパスワード' \
+SEED_ADMIN_PASSWORD='運営用の別のパスワード' \
+npm run seed
+```
+
+投入されるもの:
+
+| | 内容 |
+|---|---|
+| 運営 | `@admin`（投稿なし） |
+| デモ | `@taro` `@hanako` `@kenji` `@yuki` `@yamada` `@ebisu` |
+| 投稿 | 各5件・計30件（すべて公開・`prefecture` と `area` 入り） |
+| 関係 | デモ6人の相互フォロー、いいね、コメント |
+
+> **パスワードはスクリプトに書かれていません。** 環境変数で渡します。
+> 以前のシードスクリプトには実在のメールアドレスとパスワードが
+> 直接書かれており、公開リポジトリに載っていました。
+
+### 4-1. 管理者権限の付与
+
+`is_admin` はアプリ側からは立てられません（移行0003 のトリガーが差し戻します）。
+SQL Editor で `supabase/scripts/grant-admin.sql` を実行してください。
+
+```sql
+UPDATE profiles SET is_admin = true WHERE username = 'admin';
+```
+
+これで運営アカウントから通報一覧を読めるようになります。
+
+```sql
+SELECT * FROM admin_open_reports();
+```
 
 ---
 

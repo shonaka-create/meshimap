@@ -1,75 +1,162 @@
 /**
- * シードデータ投入スクリプト
- * 5アカウント × 各4〜5投稿 + フォロー関係 + いいね + コメント
+ * デモデータ投入スクリプト（新スキーマ対応版）
+ *
+ *   運営アカウント1件 + デモ6アカウント × 各5投稿
+ *   + 相互フォロー + いいね + コメント
+ *
+ * 旧 seed-users / seed-posts / seed-follows を1本に統合した。
+ * 分かれていた頃は3本ともユーザー作成をやっていて、
+ * どれを何回流したかで結果が変わっていたため。
+ *
+ * 新スキーマでの変更点:
+ *   - username(ユーザーID) と display_name(アカウント名) を分けて登録する。
+ *     username は signUp のメタデータで渡す。DBトリガー handle_new_user が
+ *     それを見て profiles を作る（渡さないと自動採番される）。
+ *   - profiles.is_public / posts.is_public は既定 false。
+ *     デモは見えないと意味がないので明示的に true にする。
+ *   - フォローの status はサーバー側トリガーが決める（クライアントは送らない）。
+ *     公開アカウントなら accepted。だから **プロフィールを公開にしてから**
+ *     フォローを入れる必要がある。
+ *   - 各種カウンタはトリガーが更新するので、手動 UPDATE はしない。
+ *   - posts に prefecture / area / situations を入れる。
  *
  * 前提:
- *   - schema.sql を Supabase に適用済み
- *   - Supabase Dashboard > Authentication > Settings > 「Enable email confirmations」をOFF
+ *   - supabase/schema.sql と migrations/0001, 0002 を適用済み
+ *   - Authentication > Sign In / Providers > 「Confirm email」を OFF
  *
  * 実行:
- *   node scripts/seed-posts.mjs
+ *   SEED_PASSWORD='デモ用パスワード' \
+ *   SEED_ADMIN_PASSWORD='運営用の別パスワード' \
+ *   node scripts/seed.mjs
+ *
+ * ※ パスワードをこのファイルに書かないこと。
+ *   デモ用とはいえ認証情報であり、このリポジトリは公開されている。
+ *
+ * 投入後、管理者権限の付与だけは SQL Editor から行う:
+ *   supabase/scripts/grant-admin.sql
+ * （アプリ側からは昇格できないよう移行0003 でトリガーを入れてある）
  */
 
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = 'https://eeyfbohwyvxwglzmpgov.supabase.co'
-const SUPABASE_ANON_KEY = 'sb_publishable_Nc-UnYPPW2PMveOS_FaHhg_hGRlYooI'
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/** .env.local を読む。既に環境変数にあるものは上書きしない。 */
+function loadEnvLocal() {
+  const file = path.join(ROOT, '.env.local')
+  if (!fs.existsSync(file)) return
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/)
+    if (!m) continue
+    const value = m[2].trim().replace(/^["']|["']$/g, '')
+    if (value && !process.env[m[1]]) process.env[m[1]] = value
+  }
+}
+loadEnvLocal()
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const PASSWORD = process.env.SEED_PASSWORD
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('❌ NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY が未設定です')
+  console.error('   .env.local に書くか、環境変数で渡してください')
+  process.exit(1)
+}
+if (!PASSWORD || PASSWORD.length < 8) {
+  console.error('❌ SEED_PASSWORD が未設定です（8文字以上）')
+  console.error("   例: SEED_PASSWORD='choose-your-own' node scripts/seed.mjs")
+  process.exit(1)
+}
+
+// 運営アカウントはデモ用と同じパスワードにしたくないので分けられるようにする。
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || PASSWORD
+if (ADMIN_PASSWORD === PASSWORD) {
+  console.warn('⚠️  運営アカウントがデモ用と同じパスワードです。')
+  console.warn('   SEED_ADMIN_PASSWORD を別途指定することを推奨します。\n')
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ============================================================
-// 5アカウント定義（コンセプト付き）
+// 運営（管理者）アカウント
+//   通報の確認・対応を行うためのアカウント。投稿はしない。
+//   is_admin は移行0003 のトリガーによりアプリからは立てられないので、
+//   このスクリプトの後に SQL Editor で付与する。
+// ============================================================
+const ADMIN = {
+  email: 'admin@example.com', // ← 運用で実際に受信できるアドレスに変えること
+  username: 'admin',
+  displayName: 'MeshiMap 運営',
+  bio: '📮 MeshiMap 運営アカウントです。通報の確認・お問い合わせ対応を行っています。',
+  avatarImg: 60,
+}
+
+// ============================================================
+// アカウント
+//   username: 小文字英字のみ3〜20文字（DBの CHECK 制約）。一意。
+//   displayName: アプリ上の表示名。重複可。
+//   メールは example.com（文書用に予約されたドメイン）。
+//   実在しないので、確認メールが誰かに届く事故が起きない。
 // ============================================================
 const USERS = [
   {
-    email: 'taro.meshimap@gmail.com',
-    password: 'password123',
+    email: 'taro@example.com',
+    username: 'taro',
     displayName: '田中太郎',
     bio: '🍜 ラーメン命！東京のラーメン屋を食べ歩き中。週3回はラーメン食べてます',
-    avatarImg: 11, // pravatar img番号
+    avatarImg: 11, // pravatar の img 番号
   },
   {
-    email: 'hanako.meshimap@gmail.com',
-    password: 'password123',
+    email: 'hanako@example.com',
+    username: 'hanako',
     displayName: '佐藤花子',
     bio: '☕ カフェ・スイーツ大好き女子。おしゃれで美味しいお店を発信中✨ フォロバします',
     avatarImg: 5,
   },
   {
-    email: 'kenji.meshimap@gmail.com',
-    password: 'password123',
+    email: 'kenji@example.com',
+    username: 'kenji',
     displayName: '鈴木健二',
     bio: '🥩 肉食系グルメリスト。焼肉・ステーキ・フレンチまで、ちょっといい食事が好き',
     avatarImg: 33,
   },
   {
-    email: 'yuki.meshimap@gmail.com',
-    password: 'password123',
+    email: 'yuki@example.com',
+    username: 'yuki',
     displayName: '伊藤由紀',
     bio: '🍣 和食愛好家。寿司・天ぷら・懐石を中心に、日本の食文化を伝えていきたい',
     avatarImg: 20,
   },
   {
-    email: 'yamada.meshimap@gmail.com',
-    password: 'password123',
+    email: 'yamada@example.com',
+    username: 'yamada',
     displayName: '山田翔太',
     bio: '🌏 アジアン料理探求家。韓国・中国・タイ・ベトナム料理を東京で食べ歩き！',
     avatarImg: 44,
   },
   {
-    email: 'nakaebisu.shotaro1543@gmail.com',
-    password: '1543baske',
-    displayName: 'demo_ebi',
+    email: 'ebisu@example.com',
+    username: 'ebisu',
+    displayName: 'えびちゃん',
     bio: '🍽️ 恵比寿・中目黒エリアのグルメを中心に食べ歩き。美味しいお店を発信中！',
     avatarImg: 68,
   },
 ]
 
 // ============================================================
-// 各ユーザーの投稿データ
+// 投稿
+//
+// prefecture / area は mobile/src/lib/regions.ts の内蔵データで
+// 座標から判定した結果を、そのまま値として持たせている。
+// （全30件が内蔵データだけで解決し、Geocoding API は1回も呼んでいない）
+// situations は theme.ts の SITUATIONS から選ぶ。
 // ============================================================
 const POSTS_BY_USER = {
-  '田中太郎': [
+  taro: [
     {
       caption: '渋谷の路地裏で見つけた煮干し系ラーメン🍜 スープが濃厚すぎてやばい。チャーシューも分厚くて大満足でした！また絶対来る',
       rating: 5,
@@ -77,7 +164,10 @@ const POSTS_BY_USER = {
       price_range: '¥1,001〜¥3,000',
       location_name: '一蘭 渋谷店',
       location_lat: 35.6583,
-      location_lng: 139.6980,
+      location_lng: 139.698,
+      prefecture: '東京都',
+      area: '渋谷',
+      situations: ['一人ランチにおすすめ'],
       hashtags: ['ラーメン', '渋谷グルメ', '煮干し', '東京ラーメン'],
       images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800'],
       daysAgo: 0.5,
@@ -89,7 +179,10 @@ const POSTS_BY_USER = {
       price_range: '¥1,001〜¥3,000',
       location_name: '豚山 池袋東口店',
       location_lat: 35.7294,
-      location_lng: 139.7110,
+      location_lng: 139.711,
+      prefecture: '東京都',
+      area: '池袋',
+      situations: ['一人ランチにおすすめ'],
       hashtags: ['二郎系', '池袋グルメ', 'ラーメン', 'がっつり'],
       images: ['https://images.unsplash.com/photo-1557872943-16a5ac26437e?w=800'],
       daysAgo: 2,
@@ -102,6 +195,9 @@ const POSTS_BY_USER = {
       location_name: '麺屋武蔵 新宿本店',
       location_lat: 35.6912,
       location_lng: 139.6946,
+      prefecture: '東京都',
+      area: '新宿',
+      situations: ['一人ランチにおすすめ', '飲み会'],
       hashtags: ['鶏白湯', '新宿グルメ', 'ラーメン', '深夜グルメ'],
       images: ['https://images.unsplash.com/photo-1591814468924-caf88d1232e1?w=800'],
       daysAgo: 5,
@@ -114,6 +210,9 @@ const POSTS_BY_USER = {
       location_name: '東天紅 上野本店',
       location_lat: 35.7141,
       location_lng: 139.7748,
+      prefecture: '東京都',
+      area: '上野',
+      situations: ['ランチにおすすめ', '一人ランチにおすすめ'],
       hashtags: ['中華', 'チャーハン', '上野グルメ', 'コスパ最高'],
       images: ['https://images.unsplash.com/photo-1512058564366-18510be2db19?w=800'],
       daysAgo: 8,
@@ -124,23 +223,29 @@ const POSTS_BY_USER = {
       genre: 'ラーメン',
       price_range: '¥1,001〜¥3,000',
       location_name: '一風堂 六本木店',
-      location_lat: 35.6630,
+      location_lat: 35.663,
       location_lng: 139.7315,
+      prefecture: '東京都',
+      area: '六本木',
+      situations: ['一人ランチにおすすめ'],
       hashtags: ['つけ麺', '六本木グルメ', '魚介豚骨', 'ラーメン'],
       images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&q=90'],
       daysAgo: 12,
     },
   ],
 
-  '佐藤花子': [
+  hanako: [
     {
       caption: '青山のフルーツサンド🍓 旬のいちごとクリームがたっぷりで幸せな気持ちになれる一品。毎日でも食べたいくらい好き！',
       rating: 5,
       genre: 'スイーツ',
       price_range: '〜¥1,000',
       location_name: 'ピエール・エルメ・パリ 青山',
-      location_lat: 35.6700,
+      location_lat: 35.67,
       location_lng: 139.7155,
+      prefecture: '東京都',
+      area: '六本木',
+      situations: ['女子会'],
       hashtags: ['スイーツ', 'フルーツサンド', '青山', 'カフェ活', 'いちご'],
       images: ['https://images.unsplash.com/photo-1484723091739-30a097e8f929?w=800'],
       daysAgo: 0.2,
@@ -153,6 +258,9 @@ const POSTS_BY_USER = {
       location_name: 'IVY PLACE 代官山',
       location_lat: 35.6481,
       location_lng: 139.7006,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['デート', '女子会'],
       hashtags: ['カフェ', 'パンケーキ', '代官山', 'おしゃれカフェ', '東京カフェ'],
       images: [
         'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=800',
@@ -167,7 +275,10 @@ const POSTS_BY_USER = {
       price_range: '¥1,001〜¥3,000',
       location_name: 'キル フェ ボン 表参道ヒルズ',
       location_lat: 35.6653,
-      location_lng: 139.7120,
+      location_lng: 139.712,
+      prefecture: '東京都',
+      area: '渋谷',
+      situations: ['女子会'],
       hashtags: ['スイーツ', 'タルト', '表参道', 'パティスリー', '東京スイーツ'],
       images: ['https://images.unsplash.com/photo-1488477181946-6428a0291777?w=800'],
       daysAgo: 3,
@@ -178,8 +289,11 @@ const POSTS_BY_USER = {
       genre: 'カフェ',
       price_range: '〜¥1,000',
       location_name: 'HATTIFNATT 吉祥寺',
-      location_lat: 35.7030,
+      location_lat: 35.703,
       location_lng: 139.5785,
+      prefecture: '東京都',
+      area: '吉祥寺',
+      situations: ['隠れ家', '一人ランチにおすすめ'],
       hashtags: ['カフェ', '吉祥寺', 'レトロカフェ', 'コーヒー', '休日カフェ'],
       images: [
         'https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=800',
@@ -195,13 +309,16 @@ const POSTS_BY_USER = {
       location_name: 'セルリアンタワー東急ホテル 渋谷',
       location_lat: 35.6549,
       location_lng: 139.6977,
+      prefecture: '東京都',
+      area: '渋谷',
+      situations: ['女子会', '記念日'],
       hashtags: ['アフタヌーンティー', '渋谷', 'カフェ', '女子会', 'スコーン'],
       images: ['https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800'],
       daysAgo: 10,
     },
   ],
 
-  '鈴木健二': [
+  kenji: [
     {
       caption: '神田の老舗洋食ランチ🍖 毎日変わる日替わりが最高にコスパ良い。ポークソテーに山盛りキャベツ、スープ付きで850円！通い続けたい',
       rating: 4,
@@ -210,6 +327,9 @@ const POSTS_BY_USER = {
       location_name: 'キッチン南海 神保町',
       location_lat: 35.6966,
       location_lng: 139.7576,
+      prefecture: '東京都',
+      area: '秋葉原',
+      situations: ['ランチにおすすめ', '一人ランチにおすすめ'],
       hashtags: ['洋食', 'ランチ', '神田', 'コスパ', '日替わり'],
       images: ['https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=800'],
       daysAgo: 0.4,
@@ -222,6 +342,9 @@ const POSTS_BY_USER = {
       location_name: '叙々苑 恵比寿ガーデンプレイス店',
       location_lat: 35.6471,
       location_lng: 139.7156,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['記念日', '飲み会'],
       hashtags: ['焼肉', '和牛', '恵比寿', 'A5', 'ご褒美飯'],
       images: ['https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800'],
       daysAgo: 1,
@@ -234,6 +357,9 @@ const POSTS_BY_USER = {
       location_name: 'Chez Inno 銀座',
       location_lat: 35.6714,
       location_lng: 139.7653,
+      prefecture: '東京都',
+      area: '銀座',
+      situations: ['デート', '記念日'],
       hashtags: ['フレンチ', '銀座', 'ビストロ', 'ランチ', 'ワイン'],
       images: [
         'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800',
@@ -248,7 +374,10 @@ const POSTS_BY_USER = {
       price_range: '¥10,001〜',
       location_name: 'レストラン瀬里奈 六本木',
       location_lat: 35.6628,
-      location_lng: 139.7310,
+      location_lng: 139.731,
+      prefecture: '東京都',
+      area: '六本木',
+      situations: ['記念日', 'デート', '夜景が見える'],
       hashtags: ['鉄板焼き', 'ステーキ', '六本木', '記念日', 'ディナー'],
       images: ['https://images.unsplash.com/photo-1558030006-450675393462?w=800'],
       daysAgo: 7,
@@ -261,13 +390,16 @@ const POSTS_BY_USER = {
       location_name: 'グリル満天星 麻布十番',
       location_lat: 35.6558,
       location_lng: 139.7368,
+      prefecture: '東京都',
+      area: '六本木',
+      situations: ['ランチにおすすめ', '家族で'],
       hashtags: ['洋食', 'ハンバーグ', '麻布十番', '老舗', 'デミグラス'],
       images: ['https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800'],
       daysAgo: 14,
     },
   ],
 
-  '伊藤由紀': [
+  yuki: [
     {
       caption: '鎌倉の江ノ島でしらす丼🐟 生しらすと釜揚げしらすのハーフ&ハーフ！鮮度が全然違う。海を見ながら食べる最高のランチでした',
       rating: 5,
@@ -276,6 +408,9 @@ const POSTS_BY_USER = {
       location_name: 'しらす問屋 とびっちょ 江ノ島',
       location_lat: 35.2998,
       location_lng: 139.4796,
+      prefecture: '神奈川県',
+      area: '鎌倉',
+      situations: ['家族で', 'ランチにおすすめ'],
       hashtags: ['しらす丼', '江ノ島', '和食', '鎌倉', '海鮮'],
       images: ['https://images.unsplash.com/photo-1534482421-64566f976cfa?w=800'],
       daysAgo: 0.6,
@@ -287,7 +422,10 @@ const POSTS_BY_USER = {
       price_range: '¥5,001〜¥10,000',
       location_name: '久兵衛 新宿高島屋店',
       location_lat: 35.6896,
-      location_lng: 139.6990,
+      location_lng: 139.699,
+      prefecture: '東京都',
+      area: '新宿',
+      situations: ['記念日', '仕事で'],
       hashtags: ['寿司', '新宿', 'おまかせ', '江戸前寿司', '和食'],
       images: [
         'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800',
@@ -303,6 +441,9 @@ const POSTS_BY_USER = {
       location_name: '天ぷら 大黒屋 浅草',
       location_lat: 35.7148,
       location_lng: 139.7967,
+      prefecture: '東京都',
+      area: '浅草',
+      situations: ['ランチにおすすめ', '家族で'],
       hashtags: ['天ぷら', '浅草', '和食', 'ごま油', '老舗'],
       images: ['https://images.unsplash.com/photo-1516901408873-81eed5ee17e5?w=800'],
       daysAgo: 3,
@@ -315,6 +456,9 @@ const POSTS_BY_USER = {
       location_name: '石かわ 神楽坂',
       location_lat: 35.7003,
       location_lng: 139.7429,
+      prefecture: '東京都',
+      area: '秋葉原',
+      situations: ['記念日', 'デート', '隠れ家'],
       hashtags: ['懐石', '神楽坂', '和食', '日本料理', '特別な日'],
       images: ['https://images.unsplash.com/photo-1547592180-85f173990554?w=800'],
       daysAgo: 9,
@@ -327,13 +471,16 @@ const POSTS_BY_USER = {
       location_name: '寿司清 築地本店',
       location_lat: 35.6647,
       location_lng: 139.7698,
+      prefecture: '東京都',
+      area: '銀座',
+      situations: ['ランチにおすすめ'],
       hashtags: ['ウニ丼', '築地', '海鮮', '朝ごはん', '和食'],
       images: ['https://images.unsplash.com/photo-1562802378-063ec186a863?w=800'],
       daysAgo: 13,
     },
   ],
 
-  '山田翔太': [
+  yamada: [
     {
       caption: '新大久保のサムギョプサル🥓 厚切り豚バラを炭火で焼いてエゴマの葉で包んでパクッ！キムチとの相性が最高。お腹いっぱい食べて3500円はコスパよすぎ',
       rating: 5,
@@ -342,6 +489,9 @@ const POSTS_BY_USER = {
       location_name: 'ハヌリ 新宿店',
       location_lat: 35.7006,
       location_lng: 139.7008,
+      prefecture: '東京都',
+      area: '新宿',
+      situations: ['飲み会', '女子会'],
       hashtags: ['韓国料理', 'サムギョプサル', '新大久保', 'コリアタウン', 'キムチ'],
       images: ['https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800'],
       daysAgo: 0.3,
@@ -352,8 +502,11 @@ const POSTS_BY_USER = {
       genre: '中華',
       price_range: '¥1,001〜¥3,000',
       location_name: '聘珍楼 横浜中華街',
-      location_lat: 35.4430,
+      location_lat: 35.443,
       location_lng: 139.6511,
+      prefecture: '神奈川県',
+      area: '関内・中華街',
+      situations: ['家族で', 'デート'],
       hashtags: ['中華', '小籠包', '横浜中華街', '食べ歩き', '上海料理'],
       images: [
         'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=800',
@@ -369,6 +522,9 @@ const POSTS_BY_USER = {
       location_name: 'ティーヌン 高田馬場',
       location_lat: 35.7124,
       location_lng: 139.7037,
+      prefecture: '東京都',
+      area: '池袋',
+      situations: ['ランチにおすすめ', '一人ランチにおすすめ'],
       hashtags: ['タイ料理', 'パッタイ', 'グリーンカレー', '高田馬場', 'アジア料理'],
       images: ['https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=800'],
       daysAgo: 6,
@@ -381,25 +537,31 @@ const POSTS_BY_USER = {
       location_name: 'フォーベトナム 渋谷',
       location_lat: 35.6591,
       location_lng: 139.6999,
+      prefecture: '東京都',
+      area: '渋谷',
+      situations: ['ランチにおすすめ', '一人ランチにおすすめ'],
       hashtags: ['ベトナム料理', 'フォー', '渋谷', 'パクチー', 'ヘルシー'],
       images: ['https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=800'],
       daysAgo: 10,
     },
     {
-      caption: '神田の台湾まぜそば🍜 肉味噌×卵黄×にら×魚粉の組み合わせが最高！最後に追い飯して二度美味しいやつ。週一で通いたい',
+      caption: '中野の台湾まぜそば🍜 肉味噌×卵黄×にら×魚粉の組み合わせが最高！最後に追い飯して二度美味しいやつ。週一で通いたい',
       rating: 5,
       genre: 'アジア料理',
       price_range: '〜¥1,000',
       location_name: '台湾まぜそば はなび 中野店',
       location_lat: 35.7073,
       location_lng: 139.6623,
-      hashtags: ['台湾まぜそば', '神田', '追い飯', 'まぜそば', 'アジア料理'],
+      prefecture: '東京都',
+      area: '新宿',
+      situations: ['一人ランチにおすすめ'],
+      hashtags: ['台湾まぜそば', '中野', '追い飯', 'まぜそば', 'アジア料理'],
       images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&crop=top'],
       daysAgo: 15,
     },
   ],
 
-  'demo_ebi': [
+  ebisu: [
     {
       caption: '恵比寿の絶品パスタ🍝 ランチのカルボナーラが本格的すぎてびっくり！生パスタのもちもち感がたまらない。ここは定期的に来たい',
       rating: 5,
@@ -408,6 +570,9 @@ const POSTS_BY_USER = {
       location_name: 'ラ・ボエム 恵比寿',
       location_lat: 35.6467,
       location_lng: 139.7101,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['ランチにおすすめ', 'デート'],
       hashtags: ['イタリアン', '恵比寿', 'パスタ', 'カルボナーラ', 'ランチ'],
       images: [
         'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?w=800',
@@ -421,8 +586,11 @@ const POSTS_BY_USER = {
       genre: 'カフェ',
       price_range: '¥1,001〜¥3,000',
       location_name: 'ONIBUS COFFEE 中目黒',
-      location_lat: 35.6440,
+      location_lat: 35.644,
       location_lng: 139.6988,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['デート', '一人ランチにおすすめ'],
       hashtags: ['カフェ', '中目黒', '川沿い', 'コーヒー', 'おしゃれカフェ'],
       images: [
         'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800',
@@ -438,6 +606,9 @@ const POSTS_BY_USER = {
       location_name: '恵比寿横丁',
       location_lat: 35.6474,
       location_lng: 139.7104,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['飲み会'],
       hashtags: ['焼き鳥', '恵比寿', '日本酒', '横丁', '夜ごはん'],
       images: ['https://images.unsplash.com/photo-1529042410759-befb1204b468?w=800'],
       daysAgo: 5,
@@ -448,8 +619,11 @@ const POSTS_BY_USER = {
       genre: 'フレンチ',
       price_range: '¥1,001〜¥3,000',
       location_name: 'ル・パン・コティディアン 代官山',
-      location_lat: 35.6490,
+      location_lat: 35.649,
       location_lng: 139.7028,
+      prefecture: '東京都',
+      area: '中目黒',
+      situations: ['ランチにおすすめ', '家族で'],
       hashtags: ['フレンチ', '代官山', 'ブランチ', 'クロワッサン', 'パン'],
       images: ['https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800'],
       daysAgo: 8,
@@ -462,6 +636,9 @@ const POSTS_BY_USER = {
       location_name: '鮨 なかむら 広尾',
       location_lat: 35.6522,
       location_lng: 139.7198,
+      prefecture: '東京都',
+      area: '六本木',
+      situations: ['記念日', 'デート'],
       hashtags: ['寿司', '広尾', 'おまかせ', '記念日', '大トロ'],
       images: [
         'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800',
@@ -472,186 +649,247 @@ const POSTS_BY_USER = {
   ],
 }
 
-// フォロー関係（全員相互フォロー）
-const FOLLOWS = []
-for (let i = 0; i < 6; i++) {
-  for (let j = 0; j < 6; j++) {
-    if (i !== j) FOLLOWS.push([i, j])
-  }
-}
+// コメント。from / to は username で指定する。
+const COMMENTS = [
+  { from: 'hanako', to: 'taro', postIdx: 0, text: 'ここ気になってました！煮干し系大好きなので今度行ってみます🍜' },
+  { from: 'kenji', to: 'taro', postIdx: 0, text: '渋谷にこんなお店あったんですね。情報ありがとうございます！' },
+  { from: 'taro', to: 'hanako', postIdx: 1, text: 'パンケーキふわっふわそう！今度行ってみます😍' },
+  { from: 'yuki', to: 'hanako', postIdx: 1, text: '先日行ってきました！写真通りで大満足でしたよ✨' },
+  { from: 'yamada', to: 'hanako', postIdx: 2, text: 'タルト美しい😭 これは食べたい' },
+  { from: 'taro', to: 'kenji', postIdx: 1, text: 'A5和牛うらやましい！今月のご褒美にしようかな' },
+  { from: 'yuki', to: 'kenji', postIdx: 2, text: 'ビストロのランチ良さそうですね。記念日に使おうかな' },
+  { from: 'hanako', to: 'yuki', postIdx: 1, text: '江戸前寿司いいですね✨ おまかせって緊張するけど楽しそう' },
+  { from: 'yamada', to: 'yuki', postIdx: 1, text: '私も寿司大好きです！今度一緒に行きましょう' },
+  { from: 'kenji', to: 'yuki', postIdx: 2, text: '大黒屋さん有名ですよね！浅草観光ついでに行ってみます' },
+  { from: 'taro', to: 'yamada', postIdx: 0, text: '新大久保のサムギョプサル！コスパ最高すぎますね🔥' },
+  { from: 'hanako', to: 'yamada', postIdx: 1, text: '横浜中華街懐かしい😊 小籠包また食べたくなってきた' },
+  { from: 'yuki', to: 'yamada', postIdx: 2, text: 'タイ料理好きなので絶対行きます！パッタイ美味しそう🌿' },
+  { from: 'kenji', to: 'ebisu', postIdx: 2, text: '恵比寿横丁いいですね🍺 金曜に行ってみます' },
+  { from: 'hanako', to: 'ebisu', postIdx: 1, text: 'ONIBUS 好きです☕ あの2階の窓際が最高ですよね' },
+]
 
 // ============================================================
-// メイン処理
+// 実行
 // ============================================================
 
-const userClients = []
-const userProfiles = []
+console.log(`🚀 デモデータ投入開始  (${SUPABASE_URL})\n`)
 
-console.log('🚀 シードデータ投入開始\n')
+/**
+ * アカウントを作る（既にあればサインインするだけ）。
+ * プロフィールを揃えて、ログイン済みクライアントを返す。
+ */
+async function ensureAccount(u, password) {
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
 
-// Step 1: 全ユーザーのサインアップ & サインイン
-for (const [i, u] of USERS.entries()) {
-  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-  // サインアップ（既存の場合はエラーが返るがOK）
+  // username / display_name はここで渡す。DBトリガーがこれを見て profiles を作る。
   const { error: signUpError } = await client.auth.signUp({
     email: u.email,
-    password: u.password,
-    options: { data: { full_name: u.displayName } },
+    password,
+    options: { data: { username: u.username, display_name: u.displayName } },
   })
-  if (signUpError && !signUpError.message.includes('already registered') && !signUpError.message.includes('User already registered')) {
-    console.warn(`  ⚠️  サインアップ: ${u.displayName} - ${signUpError.message}`)
+  const alreadyExists = signUpError?.message?.toLowerCase().includes('already registered')
+  if (signUpError && !alreadyExists) {
+    console.error(`❌ サインアップ失敗 @${u.username}: ${signUpError.message}`)
+    process.exit(1)
   }
-  await sleep(800)
+  await sleep(600)
 
-  // サインイン
-  const { data: signInData, error: signInError } = await client.auth.signInWithPassword({
+  const { data: signIn, error: signInError } = await client.auth.signInWithPassword({
     email: u.email,
-    password: u.password,
+    password,
   })
-  if (signInError) {
-    console.error(`❌ サインイン失敗: ${u.displayName} - ${signInError.message}`)
-    console.error('   → Supabase Dashboard > Authentication > Settings > Email confirmations をOFFにしてください')
+  if (signInError || !signIn.user) {
+    console.error(`❌ サインイン失敗 @${u.username}: ${signInError?.message}`)
+    if (signInError?.message?.includes('Email not confirmed')) {
+      console.error('   → Authentication > Sign In / Providers > Confirm email を OFF にしてください')
+    } else if (alreadyExists) {
+      console.error('   → 既存アカウントのパスワードが指定した値と違う可能性があります')
+    }
     process.exit(1)
   }
 
-  const userId = signInData.user.id
-  userProfiles.push({ ...u, id: userId })
-  userClients.push(client)
+  const id = signIn.user.id
 
-  // プロフィール更新（bio追加）
-  await client.from('profiles').upsert(
-    { id: userId, display_name: u.displayName, bio: u.bio, photo_url: `https://i.pravatar.cc/150?img=${u.avatarImg}` },
-    { onConflict: 'id' }
-  )
+  // 既存アカウントだと username が自動採番のままなので、ここで確定させる。
+  // is_public はフォローの status 判定に使われるので投稿より先に立てる。
+  const { error: profileError } = await client
+    .from('profiles')
+    .update({
+      username: u.username,
+      display_name: u.displayName,
+      bio: u.bio,
+      photo_url: `https://i.pravatar.cc/150?img=${u.avatarImg}`,
+      is_public: true,
+    })
+    .eq('id', id)
+  if (profileError) {
+    console.error(`❌ プロフィール更新失敗 @${u.username}: ${profileError.message}`)
+    process.exit(1)
+  }
 
-  console.log(`✅ [${i + 1}/${USERS.length}] ${u.displayName} ログイン完了 (${userId.slice(0, 8)}...)`)
-  await sleep(300)
+  return { ...u, id, client }
 }
 
+/** username -> { client, id, ...user } */
+const sessions = new Map()
+
+// ---- Step 0: 運営アカウント --------------------------------
+const admin = await ensureAccount(ADMIN, ADMIN_PASSWORD)
+console.log(`🛡️  @${admin.username} (${admin.displayName}) 準備完了`)
+
+// ---- Step 1: デモアカウント作成 & 公開設定 ------------------
+for (const [i, u] of USERS.entries()) {
+  sessions.set(u.username, await ensureAccount(u, PASSWORD))
+  console.log(`✅ [${i + 1}/${USERS.length}] @${u.username} (${u.displayName}) 準備完了`)
+  await sleep(200)
+}
+
+// ---- Step 2: 投稿 -------------------------------------------
 console.log('\n📝 投稿を作成中...\n')
 
-// Step 2: 各ユーザーで投稿作成
-const postIds = {}
-for (const [i, profile] of userProfiles.entries()) {
-  const client = userClients[i]
-  const posts = POSTS_BY_USER[profile.displayName] ?? []
-  postIds[profile.id] = []
+/** username -> postId[]（投稿順） */
+const postIds = new Map()
+
+for (const u of USERS) {
+  const { client, id, username } = sessions.get(u.username)
+  const posts = POSTS_BY_USER[username] ?? []
+  const ids = []
+
+  // 2回流しても増えないよう、既に入っている店名は飛ばす
+  const { data: existing } = await client
+    .from('posts')
+    .select('id, location_name')
+    .eq('user_id', id)
+  const existingByName = new Map((existing ?? []).map((p) => [p.location_name, p.id]))
 
   for (const post of posts) {
-    const createdAt = new Date(Date.now() - post.daysAgo * 24 * 60 * 60 * 1000).toISOString()
-
-    const { data: postData, error: postError } = await client.from('posts').insert({
-      user_id: profile.id,
-      caption: post.caption,
-      rating: post.rating,
-      genre: post.genre,
-      price_range: post.price_range,
-      location_name: post.location_name,
-      location_lat: post.location_lat,
-      location_lng: post.location_lng,
-      hashtags: post.hashtags,
-      created_at: createdAt,
-    }).select('id').single()
-
-    if (postError) {
-      console.error(`  ❌ 投稿失敗 (${profile.displayName}): ${postError.message}`)
+    if (existingByName.has(post.location_name)) {
+      ids.push(existingByName.get(post.location_name))
+      console.log(`  ⏭️  @${username}: "${post.location_name}" は投稿済み`)
       continue
     }
 
-    // 投稿画像
-    for (const [pos, url] of post.images.entries()) {
-      await client.from('post_images').insert({ post_id: postData.id, url, position: pos })
+    const createdAt = new Date(Date.now() - post.daysAgo * 86_400_000).toISOString()
+    const { data: created, error } = await client
+      .from('posts')
+      .insert({
+        user_id: id,
+        caption: post.caption,
+        rating: post.rating,
+        genre: post.genre,
+        price_range: post.price_range,
+        location_name: post.location_name,
+        location_lat: post.location_lat,
+        location_lng: post.location_lng,
+        prefecture: post.prefecture,
+        area: post.area,
+        situations: post.situations,
+        hashtags: post.hashtags,
+        is_public: true, // 既定は非公開。デモなので明示的に公開する
+        created_at: createdAt,
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.error(`  ❌ 投稿失敗 @${username} "${post.location_name}": ${error.message}`)
+      continue
     }
 
-    postIds[profile.id].push(postData.id)
-    process.stdout.write(`  📸 ${profile.displayName}: "${post.location_name}"\n`)
-    await sleep(200)
+    for (const [position, url] of post.images.entries()) {
+      await client.from('post_images').insert({ post_id: created.id, url, position })
+    }
+
+    ids.push(created.id)
+    console.log(`  📸 @${username}: ${post.location_name}（${post.prefecture} / ${post.area}）`)
+    await sleep(150)
   }
+
+  postIds.set(username, ids)
 }
 
+// ---- Step 3: 相互フォロー -----------------------------------
+// status はトリガーが決める（全員 is_public=true なので accepted）。
 console.log('\n👥 フォロー関係を作成中...\n')
 
-// Step 3: フォロー関係
-for (const [fromIdx, toIdx] of FOLLOWS) {
-  const client = userClients[fromIdx]
-  const follower = userProfiles[fromIdx]
-  const following = userProfiles[toIdx]
-
-  const { error } = await client.from('follows').upsert(
-    { follower_id: follower.id, following_id: following.id },
-    { onConflict: 'follower_id,following_id', ignoreDuplicates: true }
-  )
-  if (!error) {
-    console.log(`  ➡️  ${follower.displayName} → ${following.displayName}`)
-  }
-  await sleep(100)
+for (const u of USERS) {
+  const me = sessions.get(u.username)
+  const targets = USERS.filter((o) => o.username !== u.username).map((o) => sessions.get(o.username).id)
+  const { error } = await me.client
+    .from('follows')
+    .upsert(
+      targets.map((following_id) => ({ follower_id: me.id, following_id })),
+      { onConflict: 'follower_id,following_id', ignoreDuplicates: true }
+    )
+  if (error) console.error(`  ❌ @${u.username}: ${error.message}`)
+  else console.log(`  ➡️  @${u.username} → ${targets.length}人`)
+  await sleep(150)
 }
 
+// ---- Step 4: いいね -----------------------------------------
 console.log('\n❤️  いいねを作成中...\n')
 
-// Step 4: いいね（各ユーザーが他ユーザーの投稿にいいね）
-for (const [i, profile] of userProfiles.entries()) {
-  const client = userClients[i]
-  // 他のユーザーの投稿にランダムにいいね
-  for (const [j, otherProfile] of userProfiles.entries()) {
-    if (i === j) continue
-    const theirPosts = postIds[otherProfile.id] ?? []
-    // 半分の投稿にいいね
-    for (const [k, pid] of theirPosts.entries()) {
-      if (k % 2 === 0) {
-        await client.from('likes').upsert(
-          { user_id: profile.id, post_id: pid },
-          { onConflict: 'user_id,post_id', ignoreDuplicates: true }
-        )
-        await sleep(50)
-      }
+for (const u of USERS) {
+  const me = sessions.get(u.username)
+  const rows = []
+  for (const other of USERS) {
+    if (other.username === u.username) continue
+    // 全部だと不自然なので1件おきに
+    for (const [k, postId] of (postIds.get(other.username) ?? []).entries()) {
+      if (k % 2 === 0) rows.push({ user_id: me.id, post_id: postId })
     }
   }
-  console.log(`  ❤️  ${profile.displayName} がいいね完了`)
+  if (!rows.length) continue
+  const { error } = await me.client
+    .from('likes')
+    .upsert(rows, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
+  if (error) console.error(`  ❌ @${u.username}: ${error.message}`)
+  else console.log(`  ❤️  @${u.username} が ${rows.length}件にいいね`)
+  await sleep(150)
 }
 
+// ---- Step 5: コメント ---------------------------------------
 console.log('\n💬 コメントを作成中...\n')
 
-// Step 5: コメント
-const COMMENTS = [
-  { fromIdx: 1, targetUser: '田中太郎', postIdx: 0, text: 'ここ気になってました！煮干し系大好きなので今度行ってみます🍜' },
-  { fromIdx: 2, targetUser: '田中太郎', postIdx: 0, text: '渋谷にこんなお店あったんですね。情報ありがとうございます！' },
-  { fromIdx: 0, targetUser: '佐藤花子', postIdx: 0, text: 'パンケーキふわっふわそう！彼女連れて行きたい😍' },
-  { fromIdx: 3, targetUser: '佐藤花子', postIdx: 0, text: '先日行ってきました！写真通りで大満足でしたよ✨' },
-  { fromIdx: 4, targetUser: '佐藤花子', postIdx: 1, text: 'タルト美しい😭 これは食べたい' },
-  { fromIdx: 0, targetUser: '鈴木健二', postIdx: 0, text: 'A5和牛うらやましい！今月のご褒美にしようかな' },
-  { fromIdx: 3, targetUser: '鈴木健二', postIdx: 1, text: 'ビストロのランチ良さそうですね。記念日に使おうかな' },
-  { fromIdx: 1, targetUser: '伊藤由紀', postIdx: 0, text: '江戸前寿司いいですね✨ おまかせって緊張するけど楽しそう' },
-  { fromIdx: 4, targetUser: '伊藤由紀', postIdx: 0, text: '私も寿司大好きです！今度一緒に行きましょう' },
-  { fromIdx: 2, targetUser: '伊藤由紀', postIdx: 1, text: '大黒屋さん有名ですよね！浅草観光ついでに行ってみます' },
-  { fromIdx: 0, targetUser: '山田翔太', postIdx: 0, text: '新大久保のサムギョプサル！コスパ最高すぎますね🔥' },
-  { fromIdx: 1, targetUser: '山田翔太', postIdx: 1, text: '横浜中華街懐かしい😊 小籠包また食べたくなってきた' },
-  { fromIdx: 3, targetUser: '山田翔太', postIdx: 2, text: 'タイ料理好きなので絶対行きます！パッタイ美味しそう🌿' },
-]
-
 for (const c of COMMENTS) {
-  const fromProfile = userProfiles[c.fromIdx]
-  const targetProfile = userProfiles.find(p => p.displayName === c.targetUser)
-  if (!targetProfile) continue
-  const targetPosts = postIds[targetProfile.id] ?? []
+  const me = sessions.get(c.from)
+  const targetPosts = postIds.get(c.to) ?? []
   const postId = targetPosts[c.postIdx]
-  if (!postId) continue
+  if (!me || !postId) continue
 
-  const client = userClients[c.fromIdx]
-  const { error } = await client.from('comments').insert({
+  // 同じ人が同じ投稿に二重コメントしないよう確認する
+  const { count } = await me.client
+    .from('comments')
+    .select('id', { count: 'exact', head: true })
+    .eq('post_id', postId)
+    .eq('user_id', me.id)
+  if (count) {
+    console.log(`  ⏭️  @${c.from} → @${c.to} はコメント済み`)
+    continue
+  }
+
+  const { error } = await me.client.from('comments').insert({
     post_id: postId,
-    user_id: fromProfile.id,
+    user_id: me.id,
     text: c.text,
   })
-  if (!error) {
-    console.log(`  💬 ${fromProfile.displayName} → ${c.targetUser}: "${c.text.slice(0, 20)}..."`)
-  }
-  await sleep(100)
+  if (error) console.error(`  ❌ @${c.from} → @${c.to}: ${error.message}`)
+  else console.log(`  💬 @${c.from} → @${c.to}: ${c.text.slice(0, 22)}…`)
+  await sleep(120)
 }
 
-console.log('\n✅ シードデータ投入完了！')
-console.log('\n📋 ログイン情報:')
+// ---- 後始末 -------------------------------------------------
+await admin.client.auth.signOut()
+for (const s of sessions.values()) await s.client.auth.signOut()
+
+console.log('\n✅ 完了')
+console.log('\n📋 ログイン情報（パスワードは環境変数で指定した値）:')
+console.log(`   @${ADMIN.username.padEnd(8)} ${ADMIN.displayName}  ${ADMIN.email}  ← 運営`)
 for (const u of USERS) {
-  console.log(`   ${u.displayName}: ${u.email} / password123`)
+  console.log(`   @${u.username.padEnd(8)} ${u.displayName}  ${u.email}`)
 }
+
+console.log('\n👉 最後に SQL Editor で管理者権限を付与してください:')
+console.log(`   UPDATE profiles SET is_admin = true WHERE username = '${ADMIN.username}';`)
