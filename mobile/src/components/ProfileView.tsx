@@ -307,16 +307,25 @@ export function ProfileView({ username, selfId }: Props) {
         * （0件の段位を突きつけても何も生まない）。
         */}
       {standing && (isOwn || standing.impressions > 0) && (
-        <View style={[styles.monthBox, { backgroundColor: colors.surfaceAlt }]}>
+        <Pressable
+          onPress={() => router.push('/ranking')}
+          style={({ pressed }) => [
+            styles.monthBox,
+            { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+          ]}
+        >
           <View style={styles.rankBoxTop}>
             <View style={styles.monthTitle}>
               <View style={[styles.monthDot, { backgroundColor: monthlyTier.color }]} />
               <Txt variant="smallMed">今月のランク · {monthlyTier.name}</Txt>
             </View>
             {standing.rank_position != null && (
-              <Txt variant="caption" tone="faint">
-                {standing.entrants}人中 {standing.rank_position}位
-              </Txt>
+              <View style={styles.monthTitle}>
+                <Txt variant="caption" tone="faint">
+                  {standing.entrants}人中 {standing.rank_position}位
+                </Txt>
+                <Ionicons name="chevron-forward" size={13} color={colors.textFaint} />
+              </View>
             )}
           </View>
 
@@ -338,7 +347,7 @@ export function ProfileView({ username, selfId }: Props) {
               {' '}· 表示回数は「公開した投稿を自分以外が開いた数」で、同じ人は1日1回まで数えます
             </Txt>
           )}
-        </View>
+        </Pressable>
       )}
 
       {/* ── 次のランクまで（自分のページだけ） ─────────────

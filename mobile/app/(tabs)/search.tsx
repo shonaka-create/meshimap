@@ -260,7 +260,21 @@ export default function Search() {
         />
       </View>
 
-      {/* シチュエーション絞り込み。アカウントタブでは意味がないので出さない。 */}
+      {/* 検索していないときだけ「注目のお店」への入口を出す。
+          探し物が決まっている人の邪魔をしない。 */}
+      {!isSearching && (
+        <Pressable
+          onPress={() => router.push('/featured')}
+          style={({ pressed }) => [
+            styles.featuredEntry,
+            { borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="flame" size={16} color={colors.accent} />
+          <Txt variant="smallMed" style={{ flex: 1 }}>いま注目のお店</Txt>
+          <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+        </Pressable>
+      )}
 
       {/* 検索中だけタブを出す。未検索時は発見グリッドのみ。 */}
       {isSearching && (
@@ -289,7 +303,12 @@ export default function Search() {
 
 const styles = StyleSheet.create({
   searchBar: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md },
-  situationRow: { paddingHorizontal: space.lg, gap: space.sm, paddingBottom: space.md },
+  featuredEntry: {
+    flexDirection: 'row', alignItems: 'center', gap: space.sm,
+    marginHorizontal: space.lg, marginBottom: space.md,
+    paddingHorizontal: space.md, paddingVertical: space.md,
+    borderWidth: 1, borderRadius: radius.md,
+  },
   tabs: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },

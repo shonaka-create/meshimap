@@ -29,8 +29,9 @@
 | 7 | `supabase/migrations/0006_repair_counters.sql` | 手動更新時代にズレたカウンタの数え直し |
 | 8 | `supabase/migrations/0007_backfill_post_regions.sql` | 既存投稿への都道府県・エリアの後埋め |
 | 9 | `supabase/migrations/0008_impressions_featured_monthly.sql` | 表示回数・注目フラグ・月間ランク |
+| 10 | `supabase/migrations/0009_premium_gates.sql` | プレミアムの線引き（ランキング全順位・注目一覧） |
 
-> ⚠ **9 まで必ず実行してください。**
+> ⚠ **10 まで必ず実行してください。**
 > `schema.sql` は開発初期のテーブル定義で、そこで止めると `username`・公開設定・
 > 地域列・ランク列・ブロック/通報・各 RPC が存在せず、登録も地図も動きません。
 > さらに `schema.sql` の RLS は `USING (true)`（全員が読める）のままなので、
@@ -103,6 +104,19 @@
 - `profile_monthly_impressions` + `monthly_tier()` … 月ごとに入れ替わるランク。
   通算で決めると先に始めた人が居座り続けて後発が追いつけないので、
   **毎月ゼロから**数え直す。しきい値は `mobile/src/lib/impressions.ts` と対で管理
+
+`0009` が行うこと（プレミアムの線引き）:
+
+- 月間ランキングは、無料だと**上位3人＋自分の行**しか返らない。
+  自分の順位まで有料にすると、何を買うのか分からないまま
+  課金を迫ることになるので、そこは無料のままにしてある
+- 注目の投稿一覧は、無料だと**2件**まで。ただし全体の件数は返す
+  （あと何件あるか分からないと、買うかどうかの判断ができない）
+- **端末側で隠すのではなく、そもそも返さない。**
+  隠すだけだと API を直接叩けば全部読めてしまう
+- `featured_post_ids()` は**あえて SECURITY DEFINER にしていない**。
+  投稿を返す経路なので `posts` の RLS をそのまま効かせる必要がある
+  （定義者権限で読むと、非公開投稿やブロック相手の投稿まで出る）
 
 ### 1-2. Authentication
 
