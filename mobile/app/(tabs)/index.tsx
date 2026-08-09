@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import MapView, { Marker, type Region } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import {
@@ -11,9 +11,11 @@ import {
 import { Txt, Chip } from '../../src/components/ui'
 import { useLocation } from '../../src/hooks/useLocation'
 import { MAP_PROVIDER } from '../../src/lib/mapProvider'
-import type { Post, RegionCount, RegionLevel } from '../../src/lib/types'
+import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
+import { RankAvatar } from '../../src/components/RankAvatar'
+import { RANKS } from '../../src/lib/rank'
 
 /** 日本全体が収まる初期表示 */
 const JAPAN: Region = {
@@ -53,6 +55,10 @@ export default function HomeMap() {
   const [loadingRegions, setLoadingRegions] = useState(true)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
 
+  /** 自分とフォロー中の人のアイコン。「最後に投稿したお店」の位置に出る */
+  const [pins, setPins] = useState<MapPin[]>([])
+  const [showPins, setShowPins] = useState(true)
+
   /* ── 起動時に一度だけ現在地を取りに行く ─────────────── */
   useEffect(() => {
     locate().then((c) => {
@@ -89,6 +95,22 @@ export default function HomeMap() {
     load()
     return () => { cancelled = true }
   }, [drill])
+
+  /* ── 自分とフォロー中の人のアイコンを取得 ─────────────
+   * 現在地ではなく「最後に投稿したお店」の座標。
+   * 常時の位置追跡をしないので、位置情報を保存する必要がない。
+   * 画面に戻るたびに取り直す（新しい投稿で位置が動くため）。
+   */
+  const loadPins = useCallback(async () => {
+    const { data, error } = await supabase.rpc('map_pins')
+    if (error) {
+      console.warn('[home] アイコンの取得に失敗', error.message)
+      return
+    }
+    setPins((data ?? []) as MapPin[])
+  }, [])
+
+  useFocusEffect(useCallback(() => { loadPins() }, [loadPins]))
 
   /* ── エリアを選んだら、その中の投稿を取得 ───────────── */
   const loadPostsForArea = useCallback(
@@ -213,6 +235,25 @@ export default function HomeMap() {
               <PostPin genre={p.genre} selected={selectedPost?.id === p.id} />
             </Marker>
           ))}
+
+        {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
+        {showPins &&
+          pins.map((pin) => (
+            <Marker
+              key={`pin-${pin.user_id}`}
+              coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
+              onPress={() =>
+                pin.is_me
+                  ? router.push('/(tabs)/profile')
+                  : router.push(`/user/${pin.username}`)
+              }
+              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 1 }}
+              zIndex={10}
+            >
+              <FriendPin pin={pin} />
+            </Marker>
+          ))}
       </MapView>
 
       {/* ── 上部: パンくず + 階層見出し ───────────────── */}
@@ -293,6 +334,32 @@ export default function HomeMap() {
         )}
       </View>
 
+      {/* ── 右下: アイコンの表示切り替え ─────────────────
+        * 人が増えると地域バブルが読めなくなるので、隠せるようにする。
+        */}
+      {pins.length > 0 && (
+        <Pressable
+          onPress={() => setShowPins((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={showPins ? 'みんなのアイコンを隠す' : 'みんなのアイコンを表示'}
+          style={({ pressed }) => [
+            styles.fab,
+            shadow.float,
+            {
+              backgroundColor: showPins ? colors.accent : colors.surface,
+              bottom: insets.bottom + space.xl + 56 + space.md,
+              opacity: pressed ? 0.85 : 1,
+            },
+          ]}
+        >
+          <Ionicons
+            name="people"
+            size={20}
+            color={showPins ? colors.accentText : colors.textMuted}
+          />
+        </Pressable>
+      )}
+
       {/* ── 右下: 現在地に戻るボタン ───────────────────── */}
       <Pressable
         onPress={recenter}
@@ -346,6 +413,53 @@ function Crumb({
       </Txt>
     </Pressable>
   )
+}
+
+/**
+ * 自分・フォロー中の人のアイコン。
+ *
+ * Snap Map と違って現在地ではなく「最後に投稿したお店」に立つ。
+ * 位置を追跡しないぶん、いつの情報なのかが分かりにくいので、
+ * 経過時間を添えて誤解を防ぐ。
+ */
+function FriendPin({ pin }: { pin: MapPin }) {
+  const { colors } = useTheme()
+  const rank = RANKS.find((r) => r.level === pin.rank) ?? RANKS[0]
+
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <View style={[styles.friendCard, shadow.float, { backgroundColor: colors.surface }]}>
+        <RankAvatar
+          uri={pin.photo_url}
+          emoji={pin.avatar_emoji}
+          name={pin.display_name}
+          rank={rank}
+          size={44}
+        />
+        <View style={{ maxWidth: 108 }}>
+          <Txt variant="smallMed" numberOfLines={1}>
+            {pin.is_me ? 'じぶん' : pin.display_name}
+          </Txt>
+          <Txt variant="caption" tone="muted" numberOfLines={1}>
+            {timeAgo(pin.posted_at)} · {pin.location_name}
+          </Txt>
+        </View>
+      </View>
+      <View style={[styles.friendTail, { borderTopColor: colors.surface }]} />
+    </View>
+  )
+}
+
+/** 「3時間前」程度のざっくり表示。分単位まで出すと位置追跡だと誤解されるので出さない。 */
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const hours = Math.floor(diff / 3_600_000)
+  if (hours < 1) return 'さっき'
+  if (hours < 24) return `${hours}時間前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}日前`
+  const months = Math.floor(days / 30)
+  return months < 12 ? `${months}か月前` : `${Math.floor(months / 12)}年前`
 }
 
 /** 地域ごとの投稿数バブル */
@@ -456,6 +570,25 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     borderRightWidth: 5,
     borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  friendCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingVertical: space.xs,
+    paddingHorizontal: space.sm,
+    paddingRight: space.md,
+    borderRadius: radius.pill,
+  },
+  friendTail: {
+    width: 0,
+    height: 0,
+    marginTop: -1,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },

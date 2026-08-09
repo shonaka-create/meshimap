@@ -14,7 +14,31 @@ export interface Profile {
   followers_count: number
   following_count: number
   posts_count: number
+  /** 制覇したエリア数。ランクの判定に使う。トリガーが維持する */
+  areas_count: number
+  /** 選択中のアバター絵柄。ランクで解放される。null なら photo_url を使う */
+  avatar_emoji: string | null
   created_at: string
+}
+
+/**
+ * 地図に出す人のアイコン（map_pins RPC）。
+ * 現在地ではなく「最後に投稿したお店」の座標。
+ */
+export interface MapPin {
+  user_id: string
+  username: string
+  display_name: string
+  photo_url: string | null
+  avatar_emoji: string | null
+  rank: number
+  posts_count: number
+  areas_count: number
+  location_name: string
+  location_lat: number
+  location_lng: number
+  posted_at: string
+  is_me: boolean
 }
 
 /** posts テーブル + 結合結果 */

@@ -10,7 +10,8 @@ import { supabase } from '../../src/lib/supabase'
 import {
   useTheme, space, radius, GENRE_EMOJI, SITUATIONS, SITUATION_EMOJI,
 } from '../../src/theme'
-import { Avatar, Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
+import { Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
+import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 
@@ -198,7 +199,14 @@ export default function Search() {
             { borderBottomColor: colors.border, opacity: pressed ? 0.6 : 1 },
           ]}
         >
-          <Avatar uri={item.photo_url} name={item.display_name} size={48} />
+          <RankAvatar
+            uri={item.photo_url}
+            emoji={item.avatar_emoji}
+            name={item.display_name}
+            postsCount={item.posts_count}
+            areasCount={item.areas_count}
+            size={48}
+          />
           <View style={{ flex: 1, gap: 1 }}>
             <View style={styles.nameRow}>
               <Txt variant="bodyMed" numberOfLines={1}>{item.display_name}</Txt>

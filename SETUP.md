@@ -24,6 +24,7 @@
 | 2 | `supabase/migrations/0001_accounts_privacy_regions.sql` | ユーザーID/公開設定/地域集計/通報・ブロック |
 | 3 | `supabase/migrations/0002_areas_and_situations.sql` | エリア階層（station→area）とシチュエーション |
 | 4 | `supabase/migrations/0003_admin.sql` | 運営（管理者）アカウントと通報の審査 |
+| 5 | `supabase/migrations/0004_ranks_and_map_pins.sql` | ランク・アバター絵柄・地図のアイコン |
 
 いずれも `BEGIN; … COMMIT;` で囲んであるため、**途中で失敗しても何も適用されません**。
 また冪等なので、何度実行しても壊れません。
@@ -47,6 +48,18 @@
 - 管理者が読めるのは「通報が付いた投稿」だけ。全ての非公開投稿は読めない
 - アプリ側から自分を管理者に昇格できないよう、`is_admin` の変更を
   トリガーで差し戻す（SQL Editor からの操作だけ通す）
+
+`0004` が行うこと（Snap Map 風のアイコンとランク）:
+
+- `profiles.areas_count`（制覇エリア数）をトリガーで維持する
+- ランクは **投稿数 × 制覇エリア数**。同じ店に通うだけでは上がらない
+  （しきい値は `mobile/src/lib/rank.ts` と対で管理。表示は端末、判定はDB）
+- `avatar_emojis` 表と `profiles.avatar_emoji`。
+  未解放の絵柄を選んでもトリガーが `NULL` に戻すので、
+  端末側の値を書き換えても解放できない
+- `map_pins()` … 自分とフォロー中の人の**最後に投稿したお店**を返す。
+  **現在地は保存も共有もしない。** 位置情報を持たないので、
+  「位置情報を常時取得するアプリ」としての審査対象にならない
 
 ### 1-2. Authentication
 

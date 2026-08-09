@@ -6,11 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import { useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius } from '../../src/theme'
-import { Avatar, Button, EmptyState, Loading, Txt } from '../../src/components/ui'
+import { Button, EmptyState, Loading, Txt } from '../../src/components/ui'
+import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Profile } from '../../src/lib/types'
 
 interface FollowingRow extends Pick<
-  Profile, 'id' | 'username' | 'display_name' | 'photo_url' | 'bio' | 'posts_count' | 'is_public'
+  Profile,
+  'id' | 'username' | 'display_name' | 'photo_url' | 'avatar_emoji'
+  | 'bio' | 'posts_count' | 'areas_count' | 'is_public'
 > {}
 
 export default function Favorites() {
@@ -30,7 +33,7 @@ export default function Favorites() {
     const { data, error } = await supabase
       .from('follows')
       .select(
-        'following_id, profiles!follows_following_id_fkey(id, username, display_name, photo_url, bio, posts_count, is_public)'
+        'following_id, profiles!follows_following_id_fkey(id, username, display_name, photo_url, avatar_emoji, bio, posts_count, areas_count, is_public)'
       )
       .eq('follower_id', user.id)
       .eq('status', 'accepted')
@@ -122,7 +125,14 @@ export default function Favorites() {
               { borderBottomColor: colors.border, opacity: pressed ? 0.6 : 1 },
             ]}
           >
-            <Avatar uri={item.photo_url} name={item.display_name} size={52} />
+            <RankAvatar
+              uri={item.photo_url}
+              emoji={item.avatar_emoji}
+              name={item.display_name}
+              postsCount={item.posts_count}
+              areasCount={item.areas_count}
+              size={52}
+            />
 
             <View style={{ flex: 1, gap: 1 }}>
               <View style={styles.nameRow}>

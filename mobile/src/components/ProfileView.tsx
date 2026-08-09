@@ -8,8 +8,11 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme, space, radius, GENRE_EMOJI } from '../theme'
-import { Avatar, Button, EmptyState, Loading, Stat, Txt } from './ui'
+import { Button, EmptyState, Loading, Stat, Txt } from './ui'
 import { ReportDialog } from './ReportDialog'
+import { RankAvatar, RankBadge } from './RankAvatar'
+import { AvatarEmojiPicker } from './AvatarEmojiPicker'
+import { nextRank, progressToNext, rankOf, remainingToNext } from '../lib/rank'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
 
@@ -33,6 +36,7 @@ export function ProfileView({ username, selfId }: Props) {
   const [busyFollow, setBusyFollow] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const [pickingEmoji, setPickingEmoji] = useState(false)
 
   const isOwn = !!selfId || (!!profile && profile.id === user?.id)
   const cell = (width - 4) / 3
@@ -186,13 +190,60 @@ export function ProfileView({ username, selfId }: Props) {
   // 非公開アカウントで、自分でもフォロワーでもない場合は中身を隠す
   const locked = !profile.is_public && !isOwn && followStatus !== 'accepted'
 
+  const rank = rankOf(profile.posts_count, profile.areas_count)
+  const next = nextRank(rank)
+  const progress = progressToNext(profile.posts_count, profile.areas_count, rank, next)
+  const remaining = remainingToNext(profile.posts_count, profile.areas_count, next)
+
+  /** 絵柄の保存。未解放のものはDBのトリガーが NULL に戻すので、結果を読み直す。 */
+  const saveEmoji = async (emoji: string | null) => {
+    if (!user) return
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ avatar_emoji: emoji })
+      .eq('id', user.id)
+      .select('avatar_emoji')
+      .single()
+
+    setPickingEmoji(false)
+    if (error) {
+      Alert.alert('保存できませんでした', error.message)
+      return
+    }
+    // トリガーに弾かれた場合はここで null が返る
+    if (emoji && data?.avatar_emoji !== emoji) {
+      Alert.alert('まだ使えません', 'この絵柄は、もう少しランクが上がると選べるようになります。')
+    }
+    setProfile((p) => (p ? { ...p, avatar_emoji: data?.avatar_emoji ?? null } : p))
+    await refreshProfile()
+  }
+
   const header = (
     <View style={{ paddingBottom: space.md }}>
       <View style={styles.top}>
-        <Avatar uri={profile.photo_url} name={profile.display_name} size={80} />
+        <Pressable
+          onPress={isOwn ? () => setPickingEmoji(true) : undefined}
+          disabled={!isOwn}
+          accessibilityRole={isOwn ? 'button' : undefined}
+          accessibilityLabel={isOwn ? 'アイコンの絵柄を変える' : undefined}
+        >
+          <RankAvatar
+            uri={profile.photo_url}
+            emoji={profile.avatar_emoji}
+            name={profile.display_name}
+            rank={rank}
+            size={80}
+          />
+          {isOwn && (
+            <View style={[styles.editIcon, { backgroundColor: colors.accent, borderColor: colors.bg }]}>
+              <Ionicons name="brush" size={11} color={colors.accentText} />
+            </View>
+          )}
+        </Pressable>
 
         <View style={styles.stats}>
           <Stat value={profile.posts_count} label="投稿" />
+          <Stat value={profile.areas_count} label="エリア" />
           <Stat value={profile.followers_count} label="フォロワー" />
           <Stat value={profile.following_count} label="フォロー中" />
         </View>
@@ -201,6 +252,7 @@ export function ProfileView({ username, selfId }: Props) {
       <View style={styles.identity}>
         <View style={styles.nameRow}>
           <Txt variant="title">{profile.display_name}</Txt>
+          <RankBadge rank={rank} compact />
           {!profile.is_public && (
             <View style={[styles.privateTag, { backgroundColor: colors.surfaceAlt }]}>
               <Ionicons name="lock-closed" size={11} color={colors.textMuted} />
@@ -213,6 +265,27 @@ export function ProfileView({ username, selfId }: Props) {
           <Txt variant="body" tone="muted" style={{ marginTop: space.sm }}>{profile.bio}</Txt>
         )}
       </View>
+
+      {/* ── 次のランクまで（自分のページだけ） ───────────── */}
+      {isOwn && next && (
+        <View style={[styles.rankBox, { backgroundColor: colors.surfaceAlt }]}>
+          <View style={styles.rankBoxTop}>
+            <Txt variant="smallMed">{remaining}</Txt>
+            <Txt variant="caption" tone="faint">{Math.round(progress * 100)}%</Txt>
+          </View>
+          <View style={[styles.track, { backgroundColor: colors.border }]}>
+            <View
+              style={[
+                styles.fill,
+                { width: `${Math.max(progress * 100, 2)}%`, backgroundColor: next.frame },
+              ]}
+            />
+          </View>
+          <Txt variant="caption" tone="faint">
+            エリアは「新宿」「恵比寿」など、投稿した街の数です
+          </Txt>
+        </View>
+      )}
 
       <View style={styles.actions}>
         {isOwn ? (
@@ -347,6 +420,16 @@ export function ProfileView({ username, selfId }: Props) {
           onClose={() => setReporting(false)}
         />
       )}
+
+      {isOwn && (
+        <AvatarEmojiPicker
+          visible={pickingEmoji}
+          rank={rank}
+          current={profile.avatar_emoji}
+          onClose={() => setPickingEmoji(false)}
+          onSelect={saveEmoji}
+        />
+      )}
     </>
   )
 }
@@ -377,6 +460,20 @@ const styles = StyleSheet.create({
     marginHorizontal: space.lg, marginTop: space.lg,
     padding: space.md, borderRadius: radius.md,
   },
+  editIcon: {
+    position: 'absolute', right: -2, bottom: -2,
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  rankBox: {
+    marginHorizontal: space.lg, marginTop: space.lg,
+    padding: space.md, borderRadius: radius.md, gap: space.sm,
+  },
+  rankBoxTop: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 3 },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   lockBadge: {
     position: 'absolute', top: 5, right: 5,
