@@ -207,24 +207,42 @@ npx expo run:ios --device
 
 ### EAS Build を使う場合（推奨・Mac不要）
 
+`mobile/eas.json` は用意済みなので `eas build:configure` は不要です。
+
 ```bash
 npm install -g eas-cli
 eas login
 cd mobile
-eas build:configure
+eas init            # プロジェクトを Expo アカウントに紐づける（初回のみ）
 
 # 鍵は EAS のシークレットに登録する（リポジトリに置かない）
 eas secret:create --name GOOGLE_MAPS_IOS_KEY --value "＜iOS用の鍵＞"
 eas secret:create --name EXPO_PUBLIC_GOOGLE_GEOCODING_KEY --value "＜Geocoding用の鍵＞"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://ceohkxunpotitdbyyxyl.supabase.co"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "＜anonキー＞"
+```
 
-# 本番ビルド（証明書は EAS が自動作成してくれる）
+**まず実機で確認する（開発ビルド）**
+
+```bash
+eas device:create   # iPhone を登録。表示されたQRをiPhoneで読み、構成プロファイルを入れる
+eas build --platform ios --profile development
+```
+
+ビルドが終わると QR が出ます。iPhone で読み込むとアプリが入ります。
+あとは PC 側で `npx expo start --dev-client` を動かせば、
+コードを直すたびに iPhone 側へ反映されます。
+**Google Maps が使われるのはここからです**（Expo Go では Apple 地図）。
+
+**提出する（本番ビルド）**
+
+```bash
 eas build --platform ios --profile production
-
-# App Store Connect へ提出
 eas submit --platform ios
 ```
+
+証明書・プロビジョニングプロファイルは EAS が自動で作るので、
+Mac も Xcode も要りません。
 
 ### Xcode を使う場合
 

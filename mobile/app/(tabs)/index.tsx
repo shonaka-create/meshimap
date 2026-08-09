@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps'
+import MapView, { Marker, type Region } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -10,6 +10,7 @@ import {
 } from '../../src/theme'
 import { Txt, Chip } from '../../src/components/ui'
 import { useLocation } from '../../src/hooks/useLocation'
+import { MAP_PROVIDER } from '../../src/lib/mapProvider'
 import type { Post, RegionCount, RegionLevel } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
@@ -177,7 +178,7 @@ export default function HomeMap() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
         initialRegion={JAPAN}
         showsUserLocation={permission === 'granted'}

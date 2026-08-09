@@ -6,13 +6,14 @@ import {
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import * as ImageManipulator from 'expo-image-manipulator'
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'
+import MapView, { Marker } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
 import { useAuth } from '../../src/hooks/useAuth'
 import { useLocation } from '../../src/hooks/useLocation'
 import { resolveRegion } from '../../src/lib/geocode'
+import { MAP_PROVIDER } from '../../src/lib/mapProvider'
 import {
   useTheme, space, radius, GENRES, GENRE_EMOJI, PRICE_RANGES,
   SITUATIONS, SITUATION_EMOJI,
@@ -379,7 +380,7 @@ export default function NewPost() {
             <View style={[styles.mapBox, { borderColor: colors.border }]}>
               <MapView
                 ref={mapRef}
-                provider={PROVIDER_GOOGLE}
+                provider={MAP_PROVIDER}
                 style={{ flex: 1 }}
                 initialRegion={{
                   latitude: pin?.latitude ?? coords?.latitude ?? 35.6812,

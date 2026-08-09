@@ -110,14 +110,32 @@ EXPO_PUBLIC_GOOGLE_GEOCODING_KEY=＜Geocoding用の鍵＞
 
 ### 2-4. 起動
 
-`react-native-maps` はネイティブモジュールなので **Expo Go では動きません**。
+**A. Expo Go（Mac不要・無料・すぐ試せる）**
 
 ```bash
-npx expo prebuild --clean   # ネイティブプロジェクトを生成
-npx expo run:ios --device   # 実機で起動（Mac + iPhone）
+npx expo start
 ```
 
-Mac が無い場合は EAS Build を使います → [`docs/IOS_RELEASE.md`](docs/IOS_RELEASE.md)
+iPhone に App Store から **Expo Go** を入れ、表示された QR を
+カメラで読み込みます（PC と iPhone を同じ Wi-Fi に繋いでおくこと）。
+
+> **地図だけ Apple 地図になります。** iOS の Google Maps は
+> Google Maps SDK をアプリに組み込む必要があり、Expo Go には入っていません。
+> `src/lib/mapProvider.ts` が Expo Go を検出して自動で切り替えます。
+> ログイン・投稿・検索・プロフィール・通報などの動作確認はこれで足ります。
+
+**B. 開発ビルド（Google Maps 込みで確認する）**
+
+Mac があるなら:
+
+```bash
+npx expo prebuild --clean
+npx expo run:ios --device
+```
+
+Mac が無いなら EAS Build（クラウド）を使います。
+Apple Developer Program の登録が必要です
+→ [`docs/IOS_RELEASE.md`](docs/IOS_RELEASE.md)
 
 ---
 
