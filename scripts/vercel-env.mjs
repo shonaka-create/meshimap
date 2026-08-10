@@ -14,9 +14,20 @@
  * 値は一切表示しない。ログに残ると .env.local を隠している意味が無くなる。
  *
  * 使い方:
- *   npx vercel login && npx vercel link   ← 先に済ませること
+ *   npx vercel link   ← 先に済ませること
  *   node scripts/vercel-env.mjs --dry-run  ← 何を送るか確認
  *   node scripts/vercel-env.mjs
+ *
+ * ★ このPCでは `vercel login` が使えない。
+ *   Vercel CLI は src/util/oauth.ts でPC名を User-Agent ヘッダに入れる:
+ *     userAgent = `${hostname()} @ ${ua_default}`
+ *   HTTPヘッダは ASCII しか通せないので、PC名が日本語だと
+ *   「Cannot convert argument to a ByteString」で必ず落ちる。
+ *   CLI 58.9.0 でも直っていない。
+ *
+ *   そのため、ログインの代わりにアクセストークンを使う。
+ *   .env.local の VERCEL_TOKEN を読み、--token として渡す。
+ *   トークンは https://vercel.com/account/tokens で作る。
  */
 
 import { readFileSync, existsSync } from 'node:fs'
@@ -105,13 +116,22 @@ if (env.NEXT_PUBLIC_GOOGLE_GEOCODING_KEY) {
   process.exit(1)
 }
 
+// ログインの代わりにトークンを使う（PC名が日本語で login が落ちるため）
+const TOKEN = process.env.VERCEL_TOKEN || env.VERCEL_TOKEN || ''
+
 // dry-run は何も送らないので、リンク前でも中身を確認できるようにする。
 if (!DRY && !existsSync(resolve(ROOT, '.vercel/project.json'))) {
   console.error('❌ プロジェクトがまだ Vercel にリンクされていません。')
   console.error('   先に実行してください:')
-  console.error('     npx vercel login')
-  console.error('     npx vercel link')
+  console.error(`     npx vercel link --yes${TOKEN ? ' --token=$VERCEL_TOKEN' : ''}`)
   process.exit(1)
+}
+
+if (!DRY && !TOKEN) {
+  console.warn('⚠️  VERCEL_TOKEN が見つかりません。')
+  console.warn('   このPCは名前が日本語のため vercel login が使えません。')
+  console.warn('   https://vercel.com/account/tokens でトークンを作り、')
+  console.warn('   .env.local に VERCEL_TOKEN=... を追記してください。\n')
 }
 
 // ---- 登録 ------------------------------------------------------
@@ -127,10 +147,18 @@ for (const v of sending) {
       continue
     }
     // 値は stdin で渡す。引数に置くとプロセス一覧やシェル履歴に残る。
+    // トークンは --token ではなく環境変数で渡す。
+    // 引数に置くとプロセス一覧から他の利用者にも見える。
     const r = spawnSync(
       process.platform === 'win32' ? 'npx.cmd' : 'npx',
       ['vercel', 'env', 'add', v.name, target],
-      { input: env[v.name] + '\n', cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32' },
+      {
+        input: env[v.name] + '\n',
+        cwd: ROOT,
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+        env: TOKEN ? { ...process.env, VERCEL_TOKEN: TOKEN } : process.env,
+      },
     )
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
     if (r.status === 0) {
