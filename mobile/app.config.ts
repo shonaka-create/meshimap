@@ -54,14 +54,45 @@ const config: ExpoConfig = {
     },
   },
 
+  /**
+   * ★ 使わない権限は「消す」こと。
+   *
+   *   各プラグインは、指定しないと英語の既定文言つきで
+   *   権限の説明を Info.plist に足してくる。放っておくと
+   *   このアプリは以下を要求していることになっていた:
+   *
+   *     NSMicrophoneUsageDescription              … マイク（使っていない）
+   *     NSLocationAlwaysUsageDescription          … 常時位置情報（使っていない）
+   *     NSLocationAlwaysAndWhenInUseUsageDescription
+   *     NSFaceIDUsageDescription                  … Face ID（使っていない）
+   *
+   *   常時位置情報は審査でとくに厳しく見られるうえ、
+   *   App Store のプライバシー表示とも食い違う。
+   *   マイクや Face ID も「何に使うのか」を必ず聞かれる。
+   *   使っていない権限を消しておくのがいちばん早い。
+   *
+   *   false を渡すとキー自体が出力されない。
+   *   npx expo config --type introspect で結果を確認できる。
+   */
   plugins: [
     'expo-router',
-    'expo-secure-store',
+    [
+      'expo-secure-store',
+      {
+        // 生体認証は使っていない（セッションの保管にしか使っていない）
+        faceIDPermission: false,
+      },
+    ],
     [
       'expo-location',
       {
         locationWhenInUsePermission:
           '近くのお店を地図に表示するために現在地を利用します。',
+        // 常時取得はしない。現在地は押したときに1回取るだけで、保存もしない。
+        locationAlwaysPermission: false,
+        locationAlwaysAndWhenInUsePermission: false,
+        isIosBackgroundLocationEnabled: false,
+        isAndroidBackgroundLocationEnabled: false,
       },
     ],
     [
@@ -69,6 +100,8 @@ const config: ExpoConfig = {
       {
         photosPermission: '投稿する料理の写真を選ぶためにフォトライブラリへアクセスします。',
         cameraPermission: '料理の写真を撮影するためにカメラを使用します。',
+        // 動画を撮らないのでマイクは要らない
+        microphonePermission: false,
       },
     ],
   ],

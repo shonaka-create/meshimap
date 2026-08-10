@@ -80,3 +80,10 @@ jobs:
       # ここで一度バンドルまで通し、同じ抜けが再発したら止める。
       - name: Bundle (Metro)
         run: npx expo export --platform ios --output-dir /tmp/expo-export
+
+      # 使っていない権限（マイク・常時位置情報・Face ID）は、
+      # 指定を省くとプラグインの既定値として英語の文言つきで勝手に入る。
+      # 常時位置情報は審査で厳しく見られ、プライバシー表示とも食い違う。
+      # プラグイン更新で再発するので毎回見る。
+      - name: iOS native config
+        run: npm run check:ios

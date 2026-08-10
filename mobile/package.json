@@ -9,7 +9,8 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:ios": "node scripts/check-ios-config.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
