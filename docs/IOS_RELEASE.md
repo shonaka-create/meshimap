@@ -236,7 +236,7 @@ eas init            # プロジェクトを Expo アカウントに紐づける�
 eas secret:create --name GOOGLE_MAPS_IOS_KEY --value "＜iOS用の鍵＞"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://ceohkxunpotitdbyyxyl.supabase.co"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "＜anonキー＞"
-eas secret:create --name EXPO_PUBLIC_WEB_URL --value "https://＜Vercelで公開したドメイン＞"
+eas secret:create --name EXPO_PUBLIC_WEB_URL --value "https://meshimap.vercel.app"
 ```
 
 > Geocoding の鍵は **EAS に登録しません。** アプリに入る値は取り出せるためです。
@@ -371,10 +371,20 @@ App Store Review Guidelines で明確に要求されている項目です。
       本文の原本は **`mobile/src/legal/content.ts` の1箇所だけ**で、
       アプリと Web が同じものを読んでいる。二重管理していないので、
       直せば両方に反映される。**片方だけ直すことはできない。**
-- [ ] **Web を公開して URL を確定させる**（`vercel.json` はあるが未デプロイ）
-      → `npx vercel --prod`。確定した独自ドメイン or `*.vercel.app` を
-        App Store Connect の「プライバシーポリシーURL」「サポートURL」に入れる。
-        審査中に URL が変わると差し戻されるので、提出前に確定させること。
+- [x] **Web を公開して URL を確定させた** — ✅ 本番稼働中
+
+      | App Store Connect の欄 | 入れる URL |
+      |---|---|
+      | プライバシーポリシーURL | `https://meshimap.vercel.app/legal/privacy` |
+      | サポートURL | `https://meshimap.vercel.app/support` |
+
+      **公開しているのはこの3ページだけです。** 環境変数 `PUBLIC_SITE_ONLY=1`
+      を本番にだけ設定し、`proxy.ts` がそれ以外を 404 にしています。
+      Web版アプリ（地図・検索・プロフィール・DM）は審査に要らないので出していません。
+      `/api/geocode` だけは開けてあります（アプリが使うため。未認証は 401）。
+
+      独自ドメインを当てるなら**提出前に**行うこと。審査中に URL が変わると
+      差し戻されます。
 - [ ] **App Privacy（プライバシー情報）** の申告
       - 収集する項目: メールアドレス / ユーザーID / 写真 / 位置情報 / ユーザーコンテンツ
       - 「トラッキングに使用」は **いいえ**
@@ -407,9 +417,9 @@ App Store Review Guidelines で明確に要求されている項目です。
 ・「ブロック」により相互に投稿とプロフィールが非表示になります。
 ・アカウントは「設定 > アカウントを削除」から完全に削除できます。
 ・位置情報は地図の現在地表示にのみ使用し、サーバーに保存していません。
-・利用規約: https://＜公開したドメイン＞/legal/terms
-・プライバシーポリシー: https://＜公開したドメイン＞/legal/privacy
-・サポート・通報の受付: https://＜公開したドメイン＞/support
+・利用規約: https://meshimap.vercel.app/legal/terms
+・プライバシーポリシー: https://meshimap.vercel.app/legal/privacy
+・サポート・通報の受付: https://meshimap.vercel.app/support
 ```
 
 ---
