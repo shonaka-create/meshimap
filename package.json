@@ -12,7 +12,8 @@
     "seed": "node scripts/seed.mjs",
     "backfill:regions": "node scripts/backfill-regions.mjs",
     "check:sql": "node scripts/check-sql.mjs",
-    "check:seed": "node scripts/check-seed.mjs"
+    "check:seed": "node scripts/check-seed.mjs",
+    "vercel:env": "node scripts/vercel-env.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
