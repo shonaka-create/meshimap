@@ -113,6 +113,19 @@ export function Button({
 
 /* ─────────────────────────  Input  ───────────────────────── */
 
+/**
+ * 入力欄とその前後に置く文字で共通に使う字形指標。
+ *
+ * type.body から lineHeight をわざと落としてある。
+ * TextInput は lineHeight を Text と同じようには扱わないので、
+ * 同じ値を渡しても文字の座る位置が揃わない。
+ * 両方から外して字形本来の高さに任せるほうが確実に揃う。
+ */
+const inputText: TextStyle = {
+  fontSize: type.body.fontSize,
+  fontWeight: type.body.fontWeight,
+}
+
 export const Field = forwardRef<TextInput, {
   label?: string
   hint?: string
@@ -139,14 +152,33 @@ export const Field = forwardRef<TextInput, {
           { borderBottomColor: borderColor, borderBottomWidth: focused || error ? 2 : 1 },
         ]}
       >
-        {prefix && <Txt variant="body" tone="faint">{prefix}</Txt>}
+        {/* ★ prefix と入力欄は同じ字形指標で置くこと。
+            以前は prefix が <Txt variant="body">（lineHeight 25 つき）で、
+            入力欄も同じ 25 を渡していた。ところが TextInput は
+            lineHeight を Text と同じようには扱わず、文字の座る位置が
+            上下にずれる。alignItems:'center' は「箱」を揃えるだけなので、
+            箱の中の文字がずれていれば「@」と入力文字の高さが合わない。
+
+            lineHeight を両方から外すと、どちらも字形本来の高さで
+            箱ができるため、中央揃えがそのまま文字の揃えになる。 */}
+        {prefix && (
+          <Text style={[inputText, { color: colors.textFaint }]}>{prefix}</Text>
+        )}
         <TextInput
           ref={ref}
           {...rest}
           onFocus={(e) => { setFocused(true); rest.onFocus?.(e) }}
           onBlur={(e) => { setFocused(false); rest.onBlur?.(e) }}
           placeholderTextColor={colors.textFaint}
-          style={[type.body as TextStyle, { color: colors.text, flex: 1, padding: 0 }, style]}
+          style={[
+            inputText,
+            // 複数行のときだけ行間を戻す。キャプションや自己紹介は
+            // 2行以上になるので、字形任せだと行がくっついて読みにくい。
+            // 複数行の入力欄に prefix は付かないため、揃えの問題も起きない。
+            rest.multiline ? { lineHeight: type.body.lineHeight } : null,
+            { color: colors.text, flex: 1, padding: 0 },
+            style,
+          ]}
         />
         {right}
       </View>

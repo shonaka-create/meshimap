@@ -79,8 +79,8 @@ export default function Favorites() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <View style={styles.header}>
-        <Txt variant="display">Fav</Txt>
-        <Txt variant="small" tone="muted">フォロー中 {following.length}人</Txt>
+        <Txt variant="display">フォロー</Txt>
+        <Txt variant="small" tone="muted">{following.length}人</Txt>
       </View>
 
       {pendingCount > 0 && (
@@ -109,11 +109,14 @@ export default function Favorites() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListEmptyComponent={
+          /* 「人を探す」は人探し（行方不明者）に読めるので、
+             行き先そのものを名乗らせる。押した先はタブ名も「検索」で、
+             言葉が一致していると迷いが減る。 */
           <EmptyState
-            emoji="🍽️"
+            emoji="👥"
             title="まだ誰もフォローしていません"
             body="検索タブから気になる人を見つけてフォローすると、ここに並びます。"
-            action={<Button title="人を探す" onPress={() => router.push('/(tabs)/search')} />}
+            action={<Button title="検索を開く" onPress={() => router.push('/(tabs)/search')} />}
           />
         }
         renderItem={({ item }) => (

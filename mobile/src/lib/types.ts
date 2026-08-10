@@ -82,8 +82,16 @@ export interface Post {
    */
   featured_at: string | null
   created_at: string
-  /** 結合で載る */
-  author?: Pick<Profile, 'id' | 'username' | 'display_name' | 'photo_url' | 'is_demo'>
+  /**
+   * 結合で載る。
+   * posts_count / areas_count はランク（rankOf）の判定に要る。
+   * 検索結果で「どのランクの人の投稿か」を出すために持つ。
+   */
+  author?: Pick<
+    Profile,
+    'id' | 'username' | 'display_name' | 'photo_url' | 'is_demo'
+    | 'posts_count' | 'areas_count' | 'avatar_emoji'
+  >
   images: string[]
 }
 

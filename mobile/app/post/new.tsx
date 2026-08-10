@@ -19,11 +19,24 @@ import {
   SITUATIONS, SITUATION_EMOJI,
   type Genre, type PriceRange,
 } from '../../src/theme'
-import { nearestArea } from '../../src/lib/regions'
+import { nearestArea, PREFECTURE_BY_ID } from '../../src/lib/regions'
 import { Button, Chip, Field, Txt } from '../../src/components/ui'
 
 /** 要件: 写真は5枚まで。動画は登録できない。 */
 const MAX_IMAGES = 5
+
+/**
+ * 「地図で調整」を開いたときの表示範囲（緯度の度数）。
+ *
+ * 0.02（約2.2km）で始めていたが、その縮尺だと店の建物が点にもならず、
+ * 毎回ピンチで寄せてから合わせることになっていた。
+ * ここで欲しいのは「どの街か」ではなく「どの建物か」なので、
+ * 0.003（約330m）まで寄せておく。街区が読める距離。
+ *
+ * 寄せすぎると今度は現在地がずれていたときに店を探しにくくなるため、
+ * 一画面に数ブロック入るこのあたりが下限。
+ */
+const ADJUST_DELTA = 0.003
 
 interface Picked {
   uri: string
@@ -62,10 +75,9 @@ export default function NewPost() {
     locate().then((c) => {
       if (c && !pin) {
         setPin(c)
-        mapRef.current?.animateToRegion(
-          { ...c, latitudeDelta: 0.01, longitudeDelta: 0.01 },
-          600
-        )
+        // 地図はまだ描画していない（showMap が false）ので、
+        // ここで動かす相手はいない。開いたときの位置は
+        // 下の initialRegion が ADJUST_DELTA で決める。
       }
     })
     // 初回のみ
@@ -229,6 +241,11 @@ export default function NewPost() {
 
   /** ピンの位置から内蔵データで決まるエリア名。API を使わずに即座に出せる。 */
   const areaPreview = pin ? nearestArea(pin.latitude, pin.longitude) : null
+
+  /** 同名のエリアが他県にもあるので、県名を添えて取り違えを防ぐ。 */
+  const areaPrefecture = areaPreview
+    ? PREFECTURE_BY_ID[areaPreview.area.prefId]?.name ?? null
+    : null
 
   const canSubmit =
     images.length > 0 && rating > 0 && !!locationName.trim() && !!pin && !uploading
@@ -395,10 +412,13 @@ export default function NewPost() {
                     <Txt variant="bodyMed">
                       {areaPreview ? areaPreview.area.name : '現在地'}
                     </Txt>
+                    {/* 緯度経度は出さない。読んでも判断に使えず、
+                        桁の並びが不安を与えるだけだった。
+                        代わりに県名を出す。「中野」のように
+                        同じ名前のエリアが他県にもあるため、
+                        ここで取り違えに気付ける。 */}
                     <Txt variant="small" tone="muted">
-                      {areaPreview
-                        ? `${pin.latitude.toFixed(4)}, ${pin.longitude.toFixed(4)} 付近`
-                        : '地図で正確な位置を指定できます'}
+                      {areaPrefecture ?? '地図で正確な位置を指定できます'}
                     </Txt>
                   </>
                 ) : (
@@ -423,8 +443,8 @@ export default function NewPost() {
                 initialRegion={{
                   latitude: pin?.latitude ?? coords?.latitude ?? 35.6812,
                   longitude: pin?.longitude ?? coords?.longitude ?? 139.7671,
-                  latitudeDelta: 0.02,
-                  longitudeDelta: 0.02,
+                  latitudeDelta: ADJUST_DELTA,
+                  longitudeDelta: ADJUST_DELTA,
                 }}
                 showsUserLocation
                 showsMyLocationButton={false}

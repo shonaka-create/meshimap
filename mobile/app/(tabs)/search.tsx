@@ -14,7 +14,8 @@ import { Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
-import { isFeatured } from '../../src/lib/impressions'
+import { formatImpressions, isFeatured } from '../../src/lib/impressions'
+import { rankOf } from '../../src/lib/rank'
 
 type Tab = 'posts' | 'accounts'
 
@@ -167,12 +168,37 @@ export default function Search() {
               <Ionicons name="copy" size={12} color="#fff" />
             </View>
           )}
+          {/* 投稿者のランク。左上に置く。
+              枠の色は RankAvatar と同じ配色なので、
+              アイコンの縁の色とここが結びつく。
+              色だけだと覚えないと読めないので、名前も出す。 */}
+          {item.author && (() => {
+            const r = rankOf(item.author.posts_count, item.author.areas_count)
+            return (
+              <View style={[styles.badge, styles.rank, { borderColor: r.frame }]}>
+                <Txt style={[styles.badgeText, { color: r.frame }]}>{r.name}</Txt>
+              </View>
+            )
+          })()}
+
           {/* いま見られている投稿。写真の上なので、地の色に関わらず
               読めるよう暗い面に白抜きで置く。 */}
           {isFeatured(item.featured_at) && (
             <View style={styles.featured}>
               <Ionicons name="flame" size={10} color="#fff" />
               <Txt style={styles.featuredText}>注目</Txt>
+            </View>
+          )}
+
+          {/* 表示回数。0 のときは出さない。
+              「0」が並ぶと、見られていないことを強調するだけで
+              誰の役にも立たない。 */}
+          {item.impressions_count > 0 && (
+            <View style={[styles.badge, styles.impressions]}>
+              <Ionicons name="eye" size={10} color="#fff" />
+              <Txt style={styles.featuredText}>
+                {formatImpressions(item.impressions_count)}
+              </Txt>
             </View>
           )}
         </Pressable>
@@ -313,6 +339,21 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   multi: { position: 'absolute', top: 6, right: 6, opacity: 0.9 },
+
+  /* 写真の上に載る小さな札。写真の明るさが読めないので、
+     どれも暗い面に白抜きで置く。四隅に1つずつ、重ならないように配置する。 */
+  badge: {
+    position: 'absolute',
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(20,17,15,0.72)',
+  },
+  /** 左上: 投稿者のランク。枠線だけランクの色にする */
+  rank: { top: 5, left: 5, borderWidth: 1 },
+  /** 右下: 表示回数 */
+  impressions: { right: 5, bottom: 5 },
+
   featured: {
     position: 'absolute', left: 5, bottom: 5,
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -321,6 +362,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,17,15,0.72)',
   },
   featuredText: { color: '#fff', fontSize: 9, letterSpacing: 0.8 },
+  badgeText: { fontSize: 9, letterSpacing: 0.4, fontWeight: '600' },
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
