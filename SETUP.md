@@ -156,8 +156,13 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=＜anon public キー＞
 # iOS の Maps SDK 用（バンドルID com.shonaka.meshimap で制限をかける）
 GOOGLE_MAPS_IOS_KEY=＜iOS用の鍵＞
 
-# 逆ジオコーディング（Geocoding API + Places API）用
-EXPO_PUBLIC_GOOGLE_GEOCODING_KEY=＜Geocoding用の鍵＞
+# 逆ジオコーディングを頼む先（Vercel に公開した Web の URL）
+# 例: https://meshimap.vercel.app
+# ★ Geocoding の鍵はここに書かないこと。アプリに入れると取り出せてしまい、
+#   Geocoding はリファラ制限もバンドルID制限も効かないため請求を止められない。
+#   鍵は Vercel 側の GOOGLE_GEOCODING_KEY にだけ置く。
+# 空でも投稿は止まらない（内蔵の地域データだけで判定する）。
+EXPO_PUBLIC_WEB_URL=
 ```
 
 > `.env` はリポジトリ直下の `.gitignore` の `.env*` によって Git 対象外です。

@@ -108,11 +108,27 @@ const config: ExpoConfig = {
 
   experiments: { typedRoutes: true },
 
+  /**
+   * ★ extra に入れた値は配布物の中に入る。取り出せる前提で選ぶこと。
+   *
+   *   ここにあってよいのは、露出しても守る手段があるものだけ。
+   *   Supabase の anon キーは RLS で守れるので置いてよい。
+   *
+   *   Google Geocoding の鍵はここに置いてはいけない。
+   *   Geocoding は「ウェブサービス API」で、HTTP リファラ制限も
+   *   バンドルID制限も効かないため、抜かれたあと請求を止められない。
+   *   鍵はサーバー（Web の /api/geocode）にだけ置き、
+   *   アプリはログイン済みトークンを添えてそこへ問い合わせる。
+   *
+   *   Maps SDK の鍵（ios.config.googleMapsApiKey）は事情が違う。
+   *   あちらはバンドルIDで縛れるので、アプリに入っていてよい。
+   */
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
-    // Geocoding API（逆ジオコーディング）用。iOS SDK キーとは別物にしてよい。
-    googleGeocodingKey: process.env.EXPO_PUBLIC_GOOGLE_GEOCODING_KEY,
+    // 逆ジオコーディングを頼む先。Vercel に公開した Web の URL。
+    // 未設定でも投稿は止まらない（内蔵の地域データだけで判定する）。
+    webUrl: process.env.EXPO_PUBLIC_WEB_URL,
   },
 }
 

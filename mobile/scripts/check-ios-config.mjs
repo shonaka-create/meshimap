@@ -89,6 +89,37 @@ if (plist.ITSAppUsesNonExemptEncryption !== false) {
 
 if (!config.ios?.bundleIdentifier) problems.push('ios.bundleIdentifier がありません。')
 
+// ---- 配布物に入れてはいけない鍵 --------------------------------
+//
+// extra の中身はアプリの manifest としてそのまま配られる。取り出せる。
+// Supabase の anon キーは RLS で守れるので置いてよいが、
+// Google の API キーは置いてよいものと悪いものがある。
+//
+//   ios.config.googleMapsApiKey … バンドルIDで縛れる。入っていてよい。
+//   Geocoding / Places の鍵      … ウェブサービス API なので
+//                                  リファラ制限もバンドルID制限も効かない。
+//                                  抜かれたら請求を止める手段が無い。
+//
+// 一度 extra.googleGeocodingKey として入っていたので、戻らないように見る。
+const extra = config.extra ?? {}
+for (const [key, value] of Object.entries(extra)) {
+  if (typeof value !== 'string') continue
+  // Google の API キーは AIza で始まる39文字
+  if (/^AIza[0-9A-Za-z_-]{35}$/.test(value)) {
+    problems.push(
+      `extra.${key} に Google の API キーが入っています。\n`
+        + '        extra は配布物に入るため取り出せます。Geocoding の鍵は\n'
+        + '        サーバー（Web の /api/geocode）にだけ置いてください。'
+    )
+  }
+}
+if ('googleGeocodingKey' in extra) {
+  problems.push(
+    'extra.googleGeocodingKey は廃止しました。\n'
+      + '        逆ジオコーディングは Web の /api/geocode 経由に変えてあります。'
+  )
+}
+
 if (problems.length) {
   console.error('NG  iOS のネイティブ設定に問題があります:\n')
   for (const p of problems) console.error('   -  ' + p)

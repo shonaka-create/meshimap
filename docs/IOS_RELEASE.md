@@ -49,10 +49,22 @@ App Store には出せないため、iOS 版はこの `mobile/` を使います�
 
 ### 2-2. 鍵 — ✅ MeshiMap 専用に2本作成済み
 
-| 鍵の名前 | 制限 | `.env` の変数 |
-|---|---|---|
-| `meshimap-ios` | アプリ制限: **iOS バンドルID `com.shonaka.meshimap`**<br>API制限: `maps-ios-backend` のみ | `GOOGLE_MAPS_IOS_KEY` |
-| `meshimap-geocoding` | アプリ制限: 不可（端末から直接叩くため）<br>API制限: **`geocoding-backend` のみ** | `EXPO_PUBLIC_GOOGLE_GEOCODING_KEY` |
+| 鍵の名前 | 置き場所 | 制限 | 変数 |
+|---|---|---|---|
+| `meshimap-ios` | **アプリの中**（これは正しい） | アプリ制限: **iOS バンドルID `com.shonaka.meshimap`**<br>API制限: `maps-ios-backend` のみ | `mobile/.env` の `GOOGLE_MAPS_IOS_KEY` |
+| `meshimap-geocoding` | **サーバーだけ**（アプリに入れない） | アプリ制限: **かけられない**<br>API制限: `geocoding-backend` のみ | Vercel の `GOOGLE_GEOCODING_KEY` |
+
+**Geocoding の鍵をアプリに入れてはいけません。** 2本の扱いが違うのはこのためです。
+
+Maps SDK の鍵はバンドルIDで縛れるので、配布物から抜かれても他所では使えません。
+一方 Geocoding は「ウェブサービス API」で、**HTTP リファラ制限もバンドルID制限も効きません。**
+抜かれたあとに請求を止める手段が無いということです。
+
+当初は `EXPO_PUBLIC_GOOGLE_GEOCODING_KEY` としてアプリに入れていました。
+書き出したバンドル（`entry-*.hbc`）に鍵がそのまま埋まっていることを確認しています。
+いまは Web の `/api/geocode` 経由に変え、アプリはログイン済みトークンを添えて
+問い合わせるだけにしてあります。`npm run check:ios` が、
+`extra` に `AIza` で始まる鍵が戻っていないかを毎回見ます。
 
 制限が実際に効いていることを検証済みです。
 
@@ -90,6 +102,11 @@ Maps 系の割り当ては API 経由で変更できない仕様のため、ブ�
 
 Maps SDK は鍵にバンドルID制限がかかっているため、
 漏洩しても他所から使われることはありません。予算アラートでの監視で足ります。
+
+> Geocoding の日次上限は、鍵をサーバーに移したいまも**必要です。**
+> `/api/geocode` はログイン済みの利用者にしか答えませんが、
+> 利用者が増えれば呼ばれる回数も増えます。上限は「悪用を止める柵」ではなく
+> 「請求が青天井にならない柵」として要ります。
 
 ---
 
@@ -217,10 +234,13 @@ eas init            # プロジェクトを Expo アカウントに紐づける�
 
 # 鍵は EAS のシークレットに登録する（リポジトリに置かない）
 eas secret:create --name GOOGLE_MAPS_IOS_KEY --value "＜iOS用の鍵＞"
-eas secret:create --name EXPO_PUBLIC_GOOGLE_GEOCODING_KEY --value "＜Geocoding用の鍵＞"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://ceohkxunpotitdbyyxyl.supabase.co"
 eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "＜anonキー＞"
+eas secret:create --name EXPO_PUBLIC_WEB_URL --value "https://＜Vercelで公開したドメイン＞"
 ```
+
+> Geocoding の鍵は **EAS に登録しません。** アプリに入る値は取り出せるためです。
+> 鍵は Vercel 側の `GOOGLE_GEOCODING_KEY` にだけ置きます。
 
 **まず実機で確認する（開発ビルド）**
 

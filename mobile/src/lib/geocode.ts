@@ -1,10 +1,31 @@
 import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { nearestArea, nearestPrefecture, PREFECTURE_BY_ID } from './regions'
+import { supabase } from './supabase'
 
-const KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_GEOCODING_KEY ??
-  (Constants.expoConfig?.extra?.googleGeocodingKey as string | undefined)
+/**
+ * 逆ジオコーディングを頼む先。Web 側の /api/geocode。
+ *
+ * ★ Google の鍵をアプリに持たせてはいけない。
+ *
+ *   EXPO_PUBLIC_ を付けた値も、app.config.ts の extra に入れた値も、
+ *   配布物の中に入る。取り出すのは難しくない。
+ *   そして Geocoding は「ウェブサービス API」なので、
+ *   HTTP リファラ制限もバンドルID制限も効かない。
+ *   つまり鍵を抜かれたあと、請求を止める手段が無い。
+ *
+ *   Maps SDK の鍵（ios.config.googleMapsApiKey）とは事情が違う。
+ *   あちらはバンドルIDで縛れるので、アプリに入っていてよい。
+ *
+ *   そこで鍵はサーバーにだけ置き、アプリは自分のログイン済み
+ *   トークンを添えて Web のルートに問い合わせる。
+ *   誰でも叩ける口にはなっていない（route.ts で検証している）。
+ */
+const API_BASE = (
+  process.env.EXPO_PUBLIC_WEB_URL ??
+  (Constants.expoConfig?.extra?.webUrl as string | undefined) ??
+  ''
+).replace(/\/+$/, '')
 
 export interface RegionInfo {
   prefecture: string | null
@@ -56,65 +77,60 @@ async function writeCache(lat: number, lng: number, value: RegionInfo) {
   }
 }
 
-/* ─────────────────────────  Google Geocoding  ───────────────────────── */
-
-interface AddressComponent {
-  long_name: string
-  short_name: string
-  types: string[]
-}
-
-function pick(components: AddressComponent[], type: string): string | null {
-  return components.find((c) => c.types.includes(type))?.long_name ?? null
-}
+/* ─────────────────────────  サーバー経由の逆ジオコーディング  ───────────────────────── */
 
 /**
- * 緯度経度 → 都道府県 / 市区町村（Google Geocoding API）
+ * 緯度経度 → 都道府県 / 市区町村。
  *
- * 日本の住所は自治体の種類で構成要素が変わるので素直に取れない:
- *   東京都新宿区   → administrative_area_level_1=東京都, locality=新宿区
- *   大阪府大阪市北区 → administrative_area_level_1=大阪府, locality=大阪市,
- *                     sublocality_level_1=北区
- * 政令指定都市は「市＋区」を繋げないと集計単位として粗すぎるため、
- * locality が「市」で終わり sublocality_level_1 がある場合だけ連結する。
+ * 実際に Google を呼ぶのは Web 側の app/api/geocode/route.ts。
+ * 日本の住所の組み立て方（政令指定都市の「市＋区」など）も向こうにある。
+ * ここで同じ規則を書くと、片方だけ直したときに集計単位がずれる。
+ *
+ * 失敗しても投稿は止めない。呼び出し元が内蔵データで続けられるよう、
+ * どの失敗も { null, null } に畳んで返す。
  */
-async function geocodeViaApi(
+async function geocodeViaServer(
   lat: number,
   lng: number
 ): Promise<{ prefecture: string | null; city: string | null }> {
-  if (!KEY) return { prefecture: null, city: null }
+  const none = { prefecture: null, city: null }
+
+  // 公開先がまだ決まっていない環境（開発中など）では呼ばない。
+  if (!API_BASE) return none
+
+  // ルートはログイン済みの利用者にだけ答える。1回ごとに課金される口なので、
+  // 誰でも叩けるようにはしていない。
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (!token) return none
+
+  // AbortSignal.timeout は Hermes に無いことがあるので自前で組む。
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
 
   try {
-    const url =
-      `https://maps.googleapis.com/maps/api/geocode/json` +
-      `?latlng=${lat},${lng}&language=ja&result_type=street_address|premise|political&key=${KEY}`
-    const res = await fetch(url)
-    const json = await res.json()
+    const res = await fetch(`${API_BASE}/api/geocode`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ lat, lng }),
+      signal: controller.signal,
+    })
 
-    if (json.status !== 'OK' || !json.results?.length) {
-      // ZERO_RESULTS は海上などで普通に起きるので警告に留める
-      if (json.status !== 'ZERO_RESULTS') {
-        console.warn('[geocode] API:', json.status, json.error_message ?? '')
-      }
-      return { prefecture: null, city: null }
+    if (!res.ok) {
+      console.warn('[geocode] サーバーが', res.status, 'を返しました')
+      return none
     }
 
-    const components: AddressComponent[] = json.results[0].address_components ?? []
-
-    const prefecture = pick(components, 'administrative_area_level_1')
-    const locality = pick(components, 'locality')
-    const ward = pick(components, 'sublocality_level_1')
-    const level2 = pick(components, 'administrative_area_level_2')
-
-    let city: string | null = locality ?? level2 ?? ward
-    if (locality && ward && locality.endsWith('市')) {
-      city = `${locality}${ward}` // 例: 大阪市北区
-    }
-
-    return { prefecture, city }
+    const json = (await res.json()) as { prefecture?: string | null; city?: string | null }
+    return { prefecture: json.prefecture ?? null, city: json.city ?? null }
   } catch (e) {
-    console.warn('[geocode] API 呼び出しに失敗', e)
-    return { prefecture: null, city: null }
+    console.warn('[geocode] 問い合わせに失敗', e)
+    return none
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -124,10 +140,10 @@ async function geocodeViaApi(
  * 投稿地点の都道府県・エリアを決める。
  *
  * API 消費を抑えるため、次の順に試す:
- *   1. 内蔵データ（47都道府県 + 主要144エリア）… 通信なし・費用ゼロ
+ *   1. 内蔵データ（47都道府県 + 主要エリア）… 通信なし・費用ゼロ
  *   2. 端末キャッシュ … 一度引いた座標は二度と課金されない
- *   3. Google Geocoding … 1 と 2 で決まらなかったときだけ
- *   4. 最寄り都道府県 … API も失敗したときの最後の砦
+ *   3. サーバー経由の Geocoding … 1 と 2 で決まらなかったときだけ
+ *   4. 最寄り都道府県 … それも失敗したときの最後の砦
  *
  * 都市部の投稿はほぼ 1 で解決するので、実運用では
  * Geocoding API はほとんど呼ばれない。
@@ -149,8 +165,8 @@ export async function resolveRegion(lat: number, lng: number): Promise<RegionInf
   const cached = await readCache(lat, lng)
   if (cached) return cached
 
-  // 3. Google Geocoding
-  const { prefecture, city } = await geocodeViaApi(lat, lng)
+  // 3. サーバー経由の Geocoding
+  const { prefecture, city } = await geocodeViaServer(lat, lng)
   if (prefecture) {
     const result: RegionInfo = { prefecture, city, area: city, source: 'api' }
     await writeCache(lat, lng, result)

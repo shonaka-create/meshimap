@@ -39,9 +39,15 @@ npx expo run:ios --device
 | `EXPO_PUBLIC_SUPABASE_URL` | Supabase 接続先 | Dashboard > Settings > API |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase 公開キー | 同上（`anon public`） |
 | `GOOGLE_MAPS_IOS_KEY` | 地図表示（Maps SDK for iOS） | Google Cloud Console |
-| `EXPO_PUBLIC_GOOGLE_GEOCODING_KEY` | 県/市区町村/駅の判定 | 同上（Geocoding + Places） |
+| `EXPO_PUBLIC_WEB_URL` | 県/市区町村の判定を頼む先 | Vercel に公開した Web の URL |
 
 `.env` は Git 対象外です。**鍵をコミットしないでください。**
+
+> Geocoding の鍵はアプリに置きません。`EXPO_PUBLIC_` を付けた値も
+> `app.config.ts` の `extra` に入れた値も配布物に入り、取り出せます。
+> Geocoding は HTTP リファラ制限もバンドルID制限も効かないので、
+> 抜かれたあと請求を止める手段がありません。鍵はサーバー側にだけ置き、
+> アプリは `/api/geocode` にログイン済みトークンを添えて問い合わせます。
 
 ## 設計上のポイント
 
