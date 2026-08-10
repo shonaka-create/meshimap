@@ -52,12 +52,17 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* ファイル名は favorites だが、中身はフォロー中の人の一覧。
+          画面の中も「フォロー中 N人」で統一されているので、
+          タブの名前もそちらに合わせる。
+          （旧ラベルは 'Fav'。ここだけ英語だったうえ、
+            「お気に入りの店」と誤解させる名前だった） */}
       <Tabs.Screen
         name="favorites"
         options={{
-          title: 'Fav',
+          title: 'フォロー',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'heart' : 'heart-outline'} size={24} color={color} />
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={24} color={color} />
           ),
         }}
       />
