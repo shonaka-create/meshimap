@@ -2,10 +2,10 @@ import { ScrollView, View } from 'react-native'
 import { useTheme, space } from '../theme'
 import { Txt } from './ui'
 
-export interface Clause {
-  heading: string
-  body: string[]
-}
+// 型も本文と同じ場所に置く。ここで別に定義すると、
+// 片方に項目を足したときに気付けない。
+export type { Clause } from '../legal/content'
+import type { Clause } from '../legal/content'
 
 /** 利用規約 / プライバシーポリシー共通の表示部 */
 export function LegalDoc({

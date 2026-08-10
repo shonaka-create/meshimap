@@ -341,8 +341,20 @@ App Store Review Guidelines で明確に要求されている項目です。
 
 ### その他
 
-- [ ] **プライバシーポリシーURL** を App Store Connect に登録（Webにも公開が必要）
-      → `mobile/app/legal/privacy.tsx` と同じ内容を Web に置く
+- [x] **プライバシーポリシーURL / 利用規約 / サポート** のページを作成済み
+      | 用途 | パス | ファイル |
+      |---|---|---|
+      | プライバシーポリシーURL（必須） | `/legal/privacy` | `app/legal/privacy/page.tsx` |
+      | 利用規約（審査ノートに書く） | `/legal/terms` | `app/legal/terms/page.tsx` |
+      | サポートURL（必須） | `/support` | `app/support/page.tsx` |
+
+      本文の原本は **`mobile/src/legal/content.ts` の1箇所だけ**で、
+      アプリと Web が同じものを読んでいる。二重管理していないので、
+      直せば両方に反映される。**片方だけ直すことはできない。**
+- [ ] **Web を公開して URL を確定させる**（`vercel.json` はあるが未デプロイ）
+      → `npx vercel --prod`。確定した独自ドメイン or `*.vercel.app` を
+        App Store Connect の「プライバシーポリシーURL」「サポートURL」に入れる。
+        審査中に URL が変わると差し戻されるので、提出前に確定させること。
 - [ ] **App Privacy（プライバシー情報）** の申告
       - 収集する項目: メールアドレス / ユーザーID / 写真 / 位置情報 / ユーザーコンテンツ
       - 「トラッキングに使用」は **いいえ**
@@ -357,7 +369,10 @@ App Store Review Guidelines で明確に要求されている項目です。
 - [ ] **App内課金は「なし」で申告する**。`BILLING_READY` が `false` の間は
       アプリ内に購入導線が無いので、課金ありで申告すると
       「該当機能が見つからない」と言われて逆に止まる
-- [ ] **サポートURL** を用意（App Store Connect で必須。問い合わせ先が要る）
+- [x] **サポートURL** を用意（`/support`。連絡先は `teardoro@gmail.com`）
+      アプリを入れていない人・消してしまった人からも通報と削除依頼を
+      受けられるようにしてある。アプリ内にしか窓口が無いと、
+      その二者が行き止まりになり、Guideline 1.2 の体制として弱い。
 
 ### 審査ノートに書くと通りやすい文面（例）
 
@@ -372,6 +387,9 @@ App Store Review Guidelines で明確に要求されている項目です。
 ・「ブロック」により相互に投稿とプロフィールが非表示になります。
 ・アカウントは「設定 > アカウントを削除」から完全に削除できます。
 ・位置情報は地図の現在地表示にのみ使用し、サーバーに保存していません。
+・利用規約: https://＜公開したドメイン＞/legal/terms
+・プライバシーポリシー: https://＜公開したドメイン＞/legal/privacy
+・サポート・通報の受付: https://＜公開したドメイン＞/support
 ```
 
 ---
