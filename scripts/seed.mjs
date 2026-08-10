@@ -905,60 +905,111 @@ const COMMENTS = [
 
 console.log(`🚀 デモデータ投入開始  (${SUPABASE_URL})\n`)
 
+/** username が空いているか。既存アカウントの取り違えを事前に検出するのに使う。 */
+async function usernameIsFree(client, username) {
+  const { data, error } = await client.rpc('is_username_available', { p_username: username })
+  // RPC が無い環境（移行未適用など）では判定できない。判定不能は「不明」として扱い、
+  // 誤った断定をするより、そのまま先へ進めて GoTrue の返事を見る。
+  return error ? null : data === true
+}
+
 /**
  * アカウントを作る（既にあればサインインするだけ）。
  * プロフィールを揃えて、ログイン済みクライアントを返す。
+ *
+ * ★ サインアップより先にサインインを試す。
+ *   逆にすると、既存アカウントに対して毎回サインアップを投げることになり、
+ *   アドレスを1文字でも変えた瞬間に「新規登録」と解釈されて
+ *   username が衝突し、GoTrue が理由を隠したまま
+ *   'Database error saving new user' だけを返してくる。
+ *   先にサインインしておけば、既存アカウントはその経路に入らない。
  */
-async function ensureAccount(u, password) {
+async function ensureAccount(u, password, { optional = false } = {}) {
   const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  // username / display_name はここで渡す。DBトリガーがこれを見て profiles を作る。
-  const { error: signUpError } = await client.auth.signUp({
-    email: u.email,
-    password,
-    options: { data: { username: u.username, display_name: u.displayName } },
-  })
-  const alreadyExists = signUpError?.message?.toLowerCase().includes('already registered')
-  if (signUpError && !alreadyExists) {
-    console.error(`❌ サインアップ失敗 @${u.username}: ${signUpError.message}`)
+  const signInAs = () => client.auth.signInWithPassword({ email: u.email, password })
 
-    // GoTrue は handle_new_user() が落ちた理由を返してくれず、
-    // どんな原因でもこの一文になる。いちばん多いのが username の重複なので、
-    // そこだけは具体的に案内する。
-    if (signUpError.message?.includes('Database error saving new user')) {
-      console.error('')
-      console.error('   これは登録時のDBトリガー handle_new_user() が失敗したときのメッセージです。')
-      console.error(`   多いのは、username '${u.username}' が別のアカウントに既に使われている場合です。`)
-      console.error('   profiles.username は一意で、トリガーは id の衝突しか吸収しません。')
-      console.error('')
-      console.error('   前にも投入したことがあるなら、そのときと違うメールアドレスを')
-      console.error('   渡していないか確認してください（アドレスが違う＝別アカウント扱いになり、')
-      console.error('   同じ username を取りに行って衝突します）。')
-      console.error('')
-      console.error('   いま使っているアドレス:')
-      console.error(`     @${u.username} … ${u.email}`)
-      console.error('')
-      console.error('   既存を確認する SQL:')
-      console.error(`     SELECT p.id, p.username, u.email FROM profiles p`)
-      console.error(`     JOIN auth.users u ON u.id = p.id WHERE p.username = '${u.username}';`)
-    }
-    process.exit(1)
-  }
-  await sleep(600)
+  let { data: signIn, error: signInError } = await signInAs()
 
-  const { data: signIn, error: signInError } = await client.auth.signInWithPassword({
-    email: u.email,
-    password,
-  })
-  if (signInError || !signIn.user) {
-    console.error(`❌ サインイン失敗 @${u.username}: ${signInError?.message}`)
-    if (signInError?.message?.includes('Email not confirmed')) {
+  if (signInError) {
+    if (signInError.message?.includes('Email not confirmed')) {
+      console.error(`❌ サインイン失敗 @${u.username}: ${signInError.message}`)
       console.error('   → Authentication > Sign In / Providers > Confirm email を OFF にしてください')
-    } else if (alreadyExists) {
-      console.error('   → 既存アカウントのパスワードが指定した値と違う可能性があります')
+      process.exit(1)
     }
+
+    // サインインできない = このアドレスのアカウントが無いか、パスワードが違う。
+    // username が既に埋まっているなら、サインアップしても必ず衝突する。
+    // 投げる前に止めて、何を直せばいいかを出す。
+    const free = await usernameIsFree(client, u.username)
+    if (free === false) {
+      // 既にアカウントはあるが入れない。運営アカウントのように
+      // 投稿を持たないものは、ここで全体を止める理由が無い。
+      // デモデータの投入は続けられるので、警告だけ出して先へ進む。
+      if (optional) {
+        console.warn(`⚠️  @${u.username} にサインインできませんでした（${signInError.message}）`)
+        console.warn(`   username '${u.username}' は既に存在します。このアカウントは飛ばして続行します。`)
+        console.warn('   アドレスは SEED_ADMIN_EMAIL、パスワードは SEED_ADMIN_PASSWORD で指定できます。')
+        console.warn('   登録済みのアドレスを調べる SQL:')
+        console.warn('     SELECT p.username, u.email FROM profiles p')
+        console.warn('     JOIN auth.users u ON u.id = p.id ORDER BY p.username;\n')
+        return null
+      }
+      console.error(`❌ @${u.username} にサインインできませんでした: ${signInError.message}`)
+      console.error('')
+      console.error(`   username '${u.username}' は既に使われています。`)
+      console.error('   つまりアカウント自体はあり、次のどちらかがずれています。')
+      console.error('')
+      console.error(`     ・メールアドレス … いま指定しているのは ${u.email}`)
+      console.error('       （SEED_EMAIL_TEMPLATE を前回と違う値にすると別アカウント扱いになります）')
+      console.error('     ・パスワード     … 前回 SEED_PASSWORD に指定した値と同じか')
+      console.error('')
+      console.error('   登録済みのアドレスを調べる SQL:')
+      console.error('     SELECT p.username, u.email FROM profiles p')
+      console.error('     JOIN auth.users u ON u.id = p.id ORDER BY p.username;')
+      console.error('')
+      console.error('   出てきたアドレスに合わせて SEED_EMAIL_TEMPLATE を指定してください。')
+      process.exit(1)
+    }
+
+    // username は空いている。新規登録してよい。
+    // username / display_name はここで渡す。DBトリガーがこれを見て profiles を作る。
+    const { error: signUpError } = await client.auth.signUp({
+      email: u.email,
+      password,
+      options: { data: { username: u.username, display_name: u.displayName } },
+    })
+    if (signUpError) {
+      console.error(`❌ サインアップ失敗 @${u.username}: ${signUpError.message}`)
+
+      // GoTrue は handle_new_user() が落ちた理由を返してくれず、
+      // どんな原因でもこの一文になる。上で username は空いていると確認済みなので、
+      // ここに来る場合はトリガー側の別の失敗を疑う。
+      if (signUpError.message?.includes('Database error saving new user')) {
+        console.error('')
+        console.error('   登録時のDBトリガー handle_new_user() が失敗しています。')
+        console.error(`   username '${u.username}' は空いていることを確認済みなので、`)
+        console.error('   移行(0001〜)が全て適用されているかを確認してください。')
+        console.error('   supabase/check_state.sql を SQL Editor で実行すると一覧できます。')
+      }
+      process.exit(1)
+    }
+    await sleep(600)
+
+    ;({ data: signIn, error: signInError } = await signInAs())
+    if (signInError) {
+      console.error(`❌ サインイン失敗 @${u.username}: ${signInError.message}`)
+      if (signInError.message?.includes('Email not confirmed')) {
+        console.error('   → Authentication > Sign In / Providers > Confirm email を OFF にしてください')
+      }
+      process.exit(1)
+    }
+  }
+
+  if (!signIn?.user) {
+    console.error(`❌ サインイン失敗 @${u.username}: ユーザーが取得できませんでした`)
     process.exit(1)
   }
 
@@ -988,8 +1039,10 @@ async function ensureAccount(u, password) {
 const sessions = new Map()
 
 // ---- Step 0: 運営アカウント --------------------------------
-const admin = await ensureAccount(ADMIN, ADMIN_PASSWORD)
-console.log(`🛡️  @${admin.username} (${admin.displayName}) 準備完了`)
+// 運営は投稿を持たない。既にあって入れないだけなら、デモデータの投入は
+// 問題なく続けられるので optional にしてある（入れないと全部止まるのは割に合わない）。
+const admin = await ensureAccount(ADMIN, ADMIN_PASSWORD, { optional: true })
+if (admin) console.log(`🛡️  @${admin.username} (${admin.displayName}) 準備完了`)
 
 // ---- Step 1: デモアカウント作成 & 公開設定 ------------------
 for (const [i, u] of USERS.entries()) {
@@ -1139,12 +1192,12 @@ for (const c of COMMENTS) {
 }
 
 // ---- 後始末 -------------------------------------------------
-await admin.client.auth.signOut()
+if (admin) await admin.client.auth.signOut()
 for (const s of sessions.values()) await s.client.auth.signOut()
 
 console.log('\n✅ 完了')
 console.log('\n📋 ログイン情報（パスワードは環境変数で指定した値）:')
-console.log(`   @${ADMIN.username.padEnd(8)} ${ADMIN.displayName}  ${ADMIN.email}  ← 運営`)
+if (admin) console.log(`   @${ADMIN.username.padEnd(8)} ${ADMIN.displayName}  ${ADMIN.email}  ← 運営`)
 for (const u of USERS) {
   console.log(`   @${u.username.padEnd(8)} ${u.displayName}  ${u.email}`)
 }
