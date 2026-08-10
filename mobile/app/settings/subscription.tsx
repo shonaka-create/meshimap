@@ -7,8 +7,8 @@ import { useTheme, space, radius } from '../../src/theme'
 import { Button, Loading, Txt } from '../../src/components/ui'
 import { FREE_FOLLOW_LIMIT, type FollowQuota } from '../../src/lib/limits'
 import {
-  BENEFITS, BillingNotReadyError, DEFAULT_PLAN_ID, MANAGE_SUBSCRIPTION_URL,
-  PLANS, planOf, purchase, restore, type Plan,
+  BENEFITS, BILLING_READY, BillingNotReadyError, DEFAULT_PLAN_ID,
+  MANAGE_SUBSCRIPTION_URL, PLANS, planOf, purchase, restore, type Plan,
 } from '../../src/lib/billing'
 
 /**
@@ -173,6 +173,19 @@ export default function Subscription() {
           ))}
         </View>
 
+        {/* ★ 決済が繋がるまでは、金額も購入ボタンも出さない。
+            買えない購読の価格を並べた画面は、審査で
+            「未完成の機能」として弾かれる（Guideline 2.1）。
+            解約条件の文言も、買えない以上は出す意味がない。 */}
+        {!BILLING_READY ? (
+          <View style={[styles.note, { backgroundColor: colors.surfaceAlt }]}>
+            <Ionicons name="time-outline" size={16} color={colors.textMuted} />
+            <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+              プレミアムは準備中です。開始時期が決まりましたら、この画面でお知らせします。
+            </Txt>
+          </View>
+        ) : (
+        <>
         {/* ── プランの選択 ─────────────────────────
           * 年額を既定にしておく。並べて選ばせるとき、
           * 何も選ばれていない状態から始めると離脱が増える。
@@ -238,6 +251,8 @@ export default function Subscription() {
             <Txt variant="smallMed" tone="muted">プライバシー</Txt>
           </Pressable>
         </View>
+        </>
+        )}
 
         <View style={[styles.note, { backgroundColor: colors.surfaceAlt }]}>
           <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />

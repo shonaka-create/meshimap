@@ -923,6 +923,27 @@ async function ensureAccount(u, password) {
   const alreadyExists = signUpError?.message?.toLowerCase().includes('already registered')
   if (signUpError && !alreadyExists) {
     console.error(`❌ サインアップ失敗 @${u.username}: ${signUpError.message}`)
+
+    // GoTrue は handle_new_user() が落ちた理由を返してくれず、
+    // どんな原因でもこの一文になる。いちばん多いのが username の重複なので、
+    // そこだけは具体的に案内する。
+    if (signUpError.message?.includes('Database error saving new user')) {
+      console.error('')
+      console.error('   これは登録時のDBトリガー handle_new_user() が失敗したときのメッセージです。')
+      console.error(`   多いのは、username '${u.username}' が別のアカウントに既に使われている場合です。`)
+      console.error('   profiles.username は一意で、トリガーは id の衝突しか吸収しません。')
+      console.error('')
+      console.error('   前にも投入したことがあるなら、そのときと違うメールアドレスを')
+      console.error('   渡していないか確認してください（アドレスが違う＝別アカウント扱いになり、')
+      console.error('   同じ username を取りに行って衝突します）。')
+      console.error('')
+      console.error('   いま使っているアドレス:')
+      console.error(`     @${u.username} … ${u.email}`)
+      console.error('')
+      console.error('   既存を確認する SQL:')
+      console.error(`     SELECT p.id, p.username, u.email FROM profiles p`)
+      console.error(`     JOIN auth.users u ON u.id = p.id WHERE p.username = '${u.username}';`)
+    }
     process.exit(1)
   }
   await sleep(600)

@@ -17,6 +17,7 @@ import {
   formatImpressions, isFeatured, monthlyTierOf, nextMonthlyTier,
   type MonthlyStanding,
 } from '../lib/impressions'
+import { BILLING_READY } from '../lib/billing'
 import { FREE_FOLLOW_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
@@ -140,14 +141,20 @@ export function ProfileView({ username, selfId }: Props) {
       // 上限はDBのトリガーが止めている。端末側のチェックだけだと
       // API を直接叩けば回避できるため、エラーを受けて案内する。
       if (isFollowLimitError(e)) {
+        // ★ 決済が繋がるまでは「プランを見る」へ誘導しない。
+        //   行き先が「準備中」では、上限を外す方法が無いのに
+        //   あるかのように見せることになる。
         Alert.alert(
           'フォローできる人数の上限です',
           `無料でフォローできるのは${FREE_FOLLOW_LIMIT}人までです。`
-            + '\n（運営アカウントはこの人数に含まれません）',
-          [
-            { text: '閉じる', style: 'cancel' },
-            { text: 'プランを見る', onPress: () => router.push('/settings/subscription') },
-          ]
+            + '\n（運営アカウントはこの人数に含まれません）'
+            + (BILLING_READY ? '' : '\n\n上限を外せるプランは現在準備中です。'),
+          BILLING_READY
+            ? [
+                { text: '閉じる', style: 'cancel' },
+                { text: 'プランを見る', onPress: () => router.push('/settings/subscription') },
+              ]
+            : [{ text: '閉じる', style: 'cancel' }]
         )
       } else {
         Alert.alert('エラー', (e as Error).message)
