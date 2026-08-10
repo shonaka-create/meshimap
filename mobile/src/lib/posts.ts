@@ -4,9 +4,16 @@ import type { Post } from './types'
  * 投稿を取得するときの共通 select 句。
  * author の別名は profiles への外部キー名で明示しないと
  * Supabase が関係を解決できない（posts_user_id_fkey）。
+ *
+ * ★ author は列を並べずに * にしてある。
+ *   列名を並べると、まだ移行を流していないDBに対しては
+ *   「そんな列は無い」で投稿の取得ごと失敗する。
+ *   アプリを先に更新した瞬間に、地図も検索も全部空になる。
+ *   profiles は1行が小さいので、余分に取る不利より
+ *   順序を間違えても壊れないことを取る。
  */
 export const POST_SELECT =
-  '*, author:profiles!posts_user_id_fkey(id, username, display_name, photo_url), post_images(url, position)'
+  '*, author:profiles!posts_user_id_fkey(*), post_images(url, position)'
 
 /** Supabase の行を Post 型へ。画像は position 順に並べ直す。 */
 export function toPost(row: Record<string, any>): Post {

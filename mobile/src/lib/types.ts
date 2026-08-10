@@ -18,6 +18,15 @@ export interface Profile {
   areas_count: number
   /** 自分の投稿が通算で何回表示されたか。月間ランクは monthly_standing で別に引く */
   impressions_count: number
+  /**
+   * デモ用のアカウントか。
+   *
+   * デモデータには実在の店が入っているが、書いた人物は架空で、
+   * 評価も一律に付けてある。実際の訪問に基づくレビューと
+   * 見分けがつかないと困るので、画面に明示する。
+   * アプリからは変更できない（移行0010 のトリガーが差し戻す）。
+   */
+  is_demo: boolean
   /** 選択中のアバター絵柄。ランクで解放される。null なら photo_url を使う */
   avatar_emoji: string | null
   created_at: string
@@ -74,7 +83,7 @@ export interface Post {
   featured_at: string | null
   created_at: string
   /** 結合で載る */
-  author?: Pick<Profile, 'id' | 'username' | 'display_name' | 'photo_url'>
+  author?: Pick<Profile, 'id' | 'username' | 'display_name' | 'photo_url' | 'is_demo'>
   images: string[]
 }
 

@@ -6,6 +6,7 @@ import { useTheme, space, radius, shadow, GENRE_EMOJI } from '../theme'
 import { Avatar, Txt } from './ui'
 import { openDirections, openInMaps } from '../lib/maps'
 import { isFeatured } from '../lib/impressions'
+import { DemoNotice } from './DemoNotice'
 import type { Post } from '../lib/types'
 
 /** 地図上でピンを選んだときに下から出るプレビュー */
@@ -124,6 +125,12 @@ export function PostPreviewSheet({
           <Txt variant="smallMed">行き方</Txt>
         </Pressable>
       </View>
+
+      {post.author?.is_demo && (
+        <View style={{ paddingHorizontal: space.lg }}>
+          <DemoNotice compact />
+        </View>
+      )}
 
       {post.author && (
         <Pressable

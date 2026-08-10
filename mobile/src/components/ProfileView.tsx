@@ -18,6 +18,7 @@ import {
   type MonthlyStanding,
 } from '../lib/impressions'
 import { BILLING_READY } from '../lib/billing'
+import { DemoNotice } from './DemoNotice'
 import { FREE_FOLLOW_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
@@ -286,6 +287,14 @@ export function ProfileView({ username, selfId }: Props) {
           <Stat value={profile.following_count} label="フォロー中" />
         </View>
       </View>
+
+      {/* デモアカウントであることは、本文より先に出す。
+          読んだ後で「実はデモでした」と分かるのでは意味がない。 */}
+      {profile.is_demo && (
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg }}>
+          <DemoNotice />
+        </View>
+      )}
 
       <View style={styles.identity}>
         <View style={styles.nameRow}>

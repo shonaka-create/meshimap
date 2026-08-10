@@ -10,6 +10,7 @@ import { supabase } from '../../src/lib/supabase'
 import { useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius, GENRE_EMOJI, SITUATION_EMOJI } from '../../src/theme'
 import { Avatar, EmptyState, Loading, Txt } from '../../src/components/ui'
+import { DemoNotice } from '../../src/components/DemoNotice'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { openDirections, openInMaps } from '../../src/lib/maps'
 import {
@@ -233,6 +234,14 @@ export default function PostDetail() {
             )}
 
             <Txt variant="title">{post.location_name}</Txt>
+
+            {/* 実在の店の評価を読ませる画面なので、
+                本文より先にデモであることを出す。 */}
+            {post.author?.is_demo && (
+              <View style={{ marginTop: space.sm }}>
+                <DemoNotice compact />
+              </View>
+            )}
             <View style={styles.meta}>
               <View style={styles.rating}>
                 {[1, 2, 3, 4, 5].map((s) => (
