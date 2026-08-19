@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../src/lib/supabase'
 import { useAuth } from '../../src/hooks/useAuth'
@@ -12,6 +12,23 @@ export default function Settings() {
   const { colors } = useTheme()
   const router = useRouter()
   const [savingPublic, setSavingPublic] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+
+  /* ── 自分宛の承認待ちリクエスト数 ────────────────── */
+  useFocusEffect(useCallback(() => {
+    if (!user) return
+    let cancelled = false
+    supabase
+      .from('follows')
+      .select('follower_id', { count: 'exact', head: true })
+      .eq('following_id', user.id)
+      .eq('status', 'pending')
+      .then(({ count, error }) => {
+        if (cancelled || error) return
+        setPendingCount(count ?? 0)
+      })
+    return () => { cancelled = true }
+  }, [user]))
 
   /* ── アカウントの公開/非公開 ────────────────────── */
   const togglePublic = useCallback(async (next: boolean) => {
@@ -106,6 +123,9 @@ export default function Settings() {
         <Item
           icon="person-add-outline"
           label="フォローリクエスト"
+          // 件数はここにしか出ない。旧「フォロー」タブの上部に出していた
+          // 案内を、タブを畳んだときにこちらへ寄せた。
+          sub={pendingCount > 0 ? `${pendingCount}件の承認待ち` : undefined}
           onPress={() => router.push('/settings/requests')}
         />
         <Item

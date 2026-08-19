@@ -10,7 +10,7 @@ import { POST_SELECT, toPost } from '../src/lib/posts'
 import {
   FEATURED_THRESHOLD, FEATURED_WINDOW_DAYS, formatImpressions,
 } from '../src/lib/impressions'
-import { FREE_FEATURED_ROWS } from '../src/lib/billing'
+import { BILLING_READY, FREE_FEATURED_ROWS } from '../src/lib/billing'
 import type { Post } from '../src/lib/types'
 
 /**
@@ -123,7 +123,21 @@ export default function Featured() {
           />
         }
         ListFooterComponent={
-          truncated ? (
+          !truncated ? null : !BILLING_READY ? (
+            /* ★ ranking.tsx と同じ理由。買えないものを
+                 「プレミアムで見られます」と出さない。 */
+            <View
+              style={[
+                styles.lock,
+                { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
+              ]}
+            >
+              <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
+              <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                いまは{FREE_FEATURED_ROWS}件までを表示しています。
+              </Txt>
+            </View>
+          ) : (
             <Pressable
               onPress={() => router.push('/settings/subscription')}
               style={({ pressed }) => [
@@ -146,7 +160,7 @@ export default function Featured() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
             </Pressable>
-          ) : null
+          )
         }
         renderItem={({ item, index }) => (
           <Pressable

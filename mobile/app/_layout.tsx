@@ -54,6 +54,7 @@ function RootNavigator() {
           options={{ presentation: 'modal', title: '新しい投稿' }}
         />
         <Stack.Screen name="post/[id]" options={{ title: '' }} />
+        <Stack.Screen name="pick/results" options={{ title: 'おすすめ' }} />
         <Stack.Screen name="ranking" options={{ title: '今月のランキング' }} />
         <Stack.Screen name="featured" options={{ title: '注目のお店' }} />
         <Stack.Screen name="user/[username]" options={{ title: '' }} />

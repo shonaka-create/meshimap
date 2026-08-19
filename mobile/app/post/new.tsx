@@ -20,6 +20,9 @@ import {
   type Genre, type PriceRange,
 } from '../../src/theme'
 import { nearestArea, PREFECTURE_BY_ID } from '../../src/lib/regions'
+import {
+  anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
+} from '../../src/lib/moderation'
 import { Button, Chip, Field, Txt } from '../../src/components/ui'
 
 /** 要件: 写真は5枚まで。動画は登録できない。 */
@@ -127,6 +130,16 @@ export default function NewPost() {
   const submit = useCallback(async () => {
     if (!user || !pin || images.length === 0 || rating === 0 || !locationName.trim()) return
 
+    /* ── 不適切な表現の確認（Guideline 1.2）─────────────────
+     * ★ 写真を1枚も上げる前に見る。
+     *   アップロードしてから弾くと、投稿レコードは消えても
+     *   Storage に画像だけが残る。順番を変えないこと。
+     * 端末側をすり抜けても、DBのトリガーが最後に止める。 */
+    if (anyProhibitedContent(locationName, caption)) {
+      Alert.alert('投稿できません', PROHIBITED_CONTENT_MESSAGE)
+      return
+    }
+
     setUploading(true)
 
     // 途中で失敗したときに取り消す対象。投稿は「全部そろって成立」にする。
@@ -229,7 +242,13 @@ export default function NewPost() {
         console.warn('[new] 失敗した投稿の取り消しに失敗しました', cleanupErr)
       }
 
-      Alert.alert('投稿に失敗しました', (e as Error)?.message ?? '不明なエラー')
+      // DBのトリガーに止められた場合は、素のSQLエラーではなく
+      // 端末側で弾いたときと同じ文言を出す。
+      if (isProhibitedContentError(e)) {
+        Alert.alert('投稿できません', PROHIBITED_CONTENT_MESSAGE)
+      } else {
+        Alert.alert('投稿に失敗しました', (e as Error)?.message ?? '不明なエラー')
+      }
     } finally {
       setUploading(false)
       setProgress('')

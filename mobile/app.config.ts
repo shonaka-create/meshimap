@@ -8,6 +8,8 @@ import type { ExpoConfig } from 'expo/config'
 const config: ExpoConfig = {
   name: 'MeshiMap',
   slug: 'meshimap',
+  // Expo アカウントを2つ持っているので、どちらのものかを明示しておく
+  owner: 'shonakacreate',
   version: '1.0.0',
   orientation: 'portrait',
   scheme: 'meshimap',
@@ -23,7 +25,7 @@ const config: ExpoConfig = {
 
   ios: {
     supportsTablet: false,
-    bundleIdentifier: 'com.shonaka.meshimap',
+    bundleIdentifier: 'jp.yournist.meshimap',
     buildNumber: '1',
     config: {
       // iOS の react-native-maps が使う Google Maps SDK キー
@@ -36,14 +38,19 @@ const config: ExpoConfig = {
       // 写真: 投稿画像の選択のため
       NSPhotoLibraryUsageDescription:
         '投稿する料理の写真を選ぶためにフォトライブラリへアクセスします。',
-      NSCameraUsageDescription:
-        '料理の写真をその場で撮影して投稿するためにカメラを使用します。',
+      // ★ NSCameraUsageDescription は書かない。
+      //   このアプリはカメラを一度も起動しない。投稿もアイコンも
+      //   launchImageLibraryAsync だけで、launchCameraAsync の
+      //   呼び出しはコード中に1つも無い。
+      //   使わない権限を宣言すると審査で必ず用途を聞かれる。
+      //   撮影機能を足すときは、ここと expo-image-picker の
+      //   cameraPermission、check-ios-config.mjs の3箇所を戻すこと。
       ITSAppUsesNonExemptEncryption: false,
     },
   },
 
   android: {
-    package: 'com.shonaka.meshimap',
+    package: 'jp.yournist.meshimap',
     edgeToEdgeEnabled: true,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
@@ -99,7 +106,8 @@ const config: ExpoConfig = {
       'expo-image-picker',
       {
         photosPermission: '投稿する料理の写真を選ぶためにフォトライブラリへアクセスします。',
-        cameraPermission: '料理の写真を撮影するためにカメラを使用します。',
+        // カメラは起動しない。写真はライブラリからしか選べない。
+        cameraPermission: false,
         // 動画を撮らないのでマイクは要らない
         microphonePermission: false,
       },
@@ -124,6 +132,10 @@ const config: ExpoConfig = {
    *   あちらはバンドルIDで縛れるので、アプリに入っていてよい。
    */
   extra: {
+    // EAS のプロジェクト識別子。app.config.ts は動的設定のため
+    // eas init が書き込めない。手で入れる必要がある。
+    eas: { projectId: '6801e263-f159-4633-a363-9eff0da18261' },
+
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     // 逆ジオコーディングを頼む先。Vercel に公開した Web の URL。

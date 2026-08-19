@@ -9,11 +9,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:regions": "node scripts/check-regions-sync.mjs",
+    "check:moderation": "node scripts/check-moderation-sync.mjs",
     "seed": "node scripts/seed.mjs",
     "backfill:regions": "node scripts/backfill-regions.mjs",
     "check:sql": "node scripts/check-sql.mjs",
     "check:seed": "node scripts/check-seed.mjs",
-    "vercel:env": "node scripts/vercel-env.mjs"
+    "vercel:env": "node scripts/vercel-env.mjs",
+    "test:moderation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-moderation.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",

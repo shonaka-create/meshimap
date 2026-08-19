@@ -52,17 +52,18 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* ファイル名は favorites だが、中身はフォロー中の人の一覧。
-          画面の中も「フォロー中 N人」で統一されているので、
-          タブの名前もそちらに合わせる。
-          （旧ラベルは 'Fav'。ここだけ英語だったうえ、
-            「お気に入りの店」と誤解させる名前だった） */}
+      {/* 旧「フォロー」タブ（favorites.tsx）を置き換えた枠。
+          無料でフォローできるのは2人まで（移行0005）なので、
+          1画面を使って最大2行のリストを出していたことになる。
+          しかも空のときの導線は「検索を開く」で、検索タブと役目が重なっていた。
+          フォロー中の人へは 地図のピン・検索のアカウント・プロフィール から行ける。
+          フォローリクエストの確認は設定（settings/index）に元からある。 */}
       <Tabs.Screen
-        name="favorites"
+        name="pick"
         options={{
-          title: 'フォロー',
+          title: 'おすすめ',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'people' : 'people-outline'} size={24} color={color} />
+            <Ionicons name={focused ? 'compass' : 'compass-outline'} size={24} color={color} />
           ),
         }}
       />

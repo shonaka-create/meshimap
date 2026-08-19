@@ -21,13 +21,15 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "environment": "production"
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "language": "ja-JP"
+        "language": "ja-JP",
+        "ascAppId": "6800513636"
       }
     }
   }

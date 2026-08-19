@@ -153,7 +153,7 @@ npm install
 EXPO_PUBLIC_SUPABASE_URL=https://ceohkxunpotitdbyyxyl.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=＜anon public キー＞
 
-# iOS の Maps SDK 用（バンドルID com.shonaka.meshimap で制限をかける）
+# iOS の Maps SDK 用（バンドルID jp.yournist.meshimap で制限をかける）
 GOOGLE_MAPS_IOS_KEY=＜iOS用の鍵＞
 
 # 逆ジオコーディングを頼む先（Vercel に公開した Web の URL）

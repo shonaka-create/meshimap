@@ -11,6 +11,7 @@ import { useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius, GENRE_EMOJI, SITUATION_EMOJI } from '../../src/theme'
 import { Avatar, EmptyState, Loading, Txt } from '../../src/components/ui'
 import { DemoNotice } from '../../src/components/DemoNotice'
+import { ReportDialog } from '../../src/components/ReportDialog'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { openDirections, openInMaps } from '../../src/lib/maps'
 import {
@@ -43,6 +44,16 @@ export default function PostDetail() {
   const [liking, setLiking] = useState(false)
 
   const [impressions, setImpressions] = useState(0)
+
+  /**
+   * 通報ダイアログ。
+   *
+   * ★ 通報は投稿単位でも受けられないといけない（Guideline 1.2）。
+   *   以前はプロフィールにしか導線が無く、「この写真が不適切」という
+   *   報告先が存在しなかった。アカウントごと通報するしかないのは、
+   *   報告する側にとっても重すぎる。
+   */
+  const [reporting, setReporting] = useState(false)
 
   /**
    * 表示回数を記録した投稿。
@@ -166,9 +177,33 @@ export default function PostDetail() {
 
   const area = post.area ?? post.city ?? post.prefecture ?? ''
 
+  /**
+   * 自分の投稿は通報できない。
+   * 自分で自分を通報できる画面は、通報一覧をただ汚す。
+   */
+  const canReport = !!user && post.user_id !== user.id
+
   return (
     <>
-      <Stack.Screen options={{ title: '' }} />
+      <Stack.Screen
+        options={{
+          title: '',
+          // ヘッダーにも出す。本文が長いとき、下まで
+          // スクロールしないと通報できないのでは導線として弱い。
+          headerRight: canReport
+            ? () => (
+                <Pressable
+                  onPress={() => setReporting(true)}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="この投稿を通報する"
+                >
+                  <Ionicons name="flag-outline" size={21} color={colors.text} />
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
       <ScrollView
         style={{ flex: 1, backgroundColor: colors.bg }}
         contentContainerStyle={{ paddingBottom: space.xxxl }}
@@ -366,8 +401,36 @@ export default function PostDetail() {
               <Txt variant="smallMed">行き方</Txt>
             </Pressable>
           </View>
+
+          {/* ── 通報（Guideline 1.2）──────────────────
+                本文と写真を読み終わった位置に置く。
+                不適切だと判断できるのは中身を見たあとなので、
+                その場ですぐ報告できるところに無いと使われない。 */}
+          {canReport && (
+            <Pressable
+              onPress={() => setReporting(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="この投稿を通報する"
+              style={({ pressed }) => [styles.report, { opacity: pressed ? 0.55 : 1 }]}
+            >
+              <Ionicons name="flag-outline" size={15} color={colors.textFaint} />
+              <Txt variant="small" tone="faint">この投稿を通報する</Txt>
+            </Pressable>
+          )}
         </View>
       </ScrollView>
+
+      {reporting && (
+        <ReportDialog
+          // 投稿を指す。target_user_id は入れない。
+          // admin_open_reports が投稿から作者を引く（COALESCE）ので、
+          // 両方入れると「アカウントへの通報」と見分けが付かなくなる。
+          targetPostId={post.id}
+          targetLabel={`「${post.location_name}」の投稿`}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </>
   )
 }
@@ -400,6 +463,10 @@ const styles = StyleSheet.create({
   },
   count: { flexDirection: 'row', alignItems: 'center', gap: space.xs, minWidth: 44 },
   actions: { flexDirection: 'row', gap: space.sm },
+  report: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: space.xs, paddingVertical: space.sm,
+  },
   action: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: space.xs, paddingVertical: space.md,

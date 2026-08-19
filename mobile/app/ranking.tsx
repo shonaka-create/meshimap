@@ -8,7 +8,7 @@ import { useTheme, space, radius } from '../src/theme'
 import { EmptyState, Loading, Txt } from '../src/components/ui'
 import { RankAvatar } from '../src/components/RankAvatar'
 import { formatImpressions, monthlyTierOf } from '../src/lib/impressions'
-import { FREE_RANKING_ROWS } from '../src/lib/billing'
+import { BILLING_READY, FREE_RANKING_ROWS } from '../src/lib/billing'
 
 interface Row {
   user_id: string
@@ -100,7 +100,24 @@ export default function Ranking() {
           />
         }
         ListFooterComponent={
-          truncated ? (
+          !truncated ? null : !BILLING_READY ? (
+            /* ★ 決済が繋がるまでは「プレミアムで見られます」と書かない。
+                 押した先が「準備中」しか無いので、外す方法があるように
+                 見せて空振りさせることになる（Guideline 2.1）。
+                 かといって黙って3人で切ると、集計が壊れているように見える。
+                 売り込まずに、いま何が出ているかだけを述べる。 */
+            <View
+              style={[
+                styles.lock,
+                { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
+              ]}
+            >
+              <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
+              <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                いまは上位{FREE_RANKING_ROWS}人と、自分の順位を表示しています。
+              </Txt>
+            </View>
+          ) : (
             <Pressable
               onPress={() => router.push('/settings/subscription')}
               style={({ pressed }) => [
@@ -119,7 +136,7 @@ export default function Ranking() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
             </Pressable>
-          ) : null
+          )
         }
         renderItem={({ item }) => {
           const tier = monthlyTierOf(item.impressions)

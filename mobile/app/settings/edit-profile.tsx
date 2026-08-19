@@ -8,6 +8,9 @@ import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
 import { useAuth, validateUsername } from '../../src/hooks/useAuth'
+import {
+  anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
+} from '../../src/lib/moderation'
 import { useTheme, space } from '../../src/theme'
 import { Avatar, Button, Field, Txt } from '../../src/components/ui'
 
@@ -82,6 +85,17 @@ export default function EditProfile() {
     if (usernameError) { Alert.alert(usernameError); return }
     if (usernameTaken) { Alert.alert('このユーザーIDは既に使われています'); return }
 
+    /* ── 不適切な表現の確認（Guideline 1.2）─────────────────
+     * 表示名と自己紹介は、投稿しなくても他の人から見える。
+     * ★ 写真を上げる前に見る。順番を変えると、保存できなかった
+     *   アイコン画像だけが Storage に残る。
+     * ユーザーIDは小文字英字3〜20文字の制約で別に守られているため、
+     * ここでは見ない（既存仕様のまま）。 */
+    if (anyProhibitedContent(displayName, bio)) {
+      Alert.alert('保存できません', PROHIBITED_CONTENT_MESSAGE)
+      return
+    }
+
     setSaving(true)
     try {
       let photoUrl = profile.photo_url
@@ -117,6 +131,11 @@ export default function EditProfile() {
       await refreshProfile()
       router.back()
     } catch (e) {
+      // DBのトリガーに止められた場合は、端末側で弾いたときと同じ文言を出す
+      if (isProhibitedContentError(e)) {
+        Alert.alert('保存できません', PROHIBITED_CONTENT_MESSAGE)
+        return
+      }
       const msg = (e as Error).message
       Alert.alert(
         '保存に失敗しました',

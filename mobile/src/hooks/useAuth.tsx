@@ -4,6 +4,7 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { containsProhibitedContent, PROHIBITED_CONTENT_MESSAGE } from '../lib/moderation'
 import type { Profile } from '../lib/types'
 
 /** ユーザーID(@handle) の規則。DB側の CHECK 制約と必ず一致させること。 */
@@ -110,6 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const formatError = validateUsername(normalized)
       if (formatError) throw new Error(formatError)
       if (!displayName.trim()) throw new Error('アカウント名を入力してください')
+
+      // アカウント名は投稿しなくても他の人から見えるので、
+      // 登録の時点で見る（Guideline 1.2）。画面ではなくここに置いたのは、
+      // 登録の入口をこの関数1つに絞ってあるため。
+      if (containsProhibitedContent(displayName)) {
+        throw new Error(PROHIBITED_CONTENT_MESSAGE)
+      }
 
       // 事前チェック。ここを通っても同時登録で衝突しうるので、
       // 最終的な一意性は DB の UNIQUE 制約が保証する。

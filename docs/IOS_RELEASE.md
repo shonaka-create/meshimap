@@ -51,7 +51,7 @@ App Store には出せないため、iOS 版はこの `mobile/` を使います�
 
 | 鍵の名前 | 置き場所 | 制限 | 変数 |
 |---|---|---|---|
-| `meshimap-ios` | **アプリの中**（これは正しい） | アプリ制限: **iOS バンドルID `com.shonaka.meshimap`**<br>API制限: `maps-ios-backend` のみ | `mobile/.env` の `GOOGLE_MAPS_IOS_KEY` |
+| `meshimap-ios` | **アプリの中**（これは正しい） | アプリ制限: **iOS バンドルID `jp.yournist.meshimap`**<br>API制限: `maps-ios-backend` のみ | `mobile/.env` の `GOOGLE_MAPS_IOS_KEY` |
 | `meshimap-geocoding` | **サーバーだけ**（アプリに入れない） | アプリ制限: **かけられない**<br>API制限: `geocoding-backend` のみ | Vercel の `GOOGLE_GEOCODING_KEY` |
 
 **Geocoding の鍵をアプリに入れてはいけません。** 2本の扱いが違うのはこのためです。
@@ -158,7 +158,16 @@ Dynamic Maps は**地図を初期化した回数**で課金されます（操作
 #   Supabase Dashboard > SQL Editor で以下のファイルの中身を貼り付けて実行
 #   supabase/schema.sql                                （初回のみ）
 #   supabase/migrations/0001_accounts_privacy_regions.sql
+#   … 以降 0002 〜 0012 を番号順に。飛ばすと後の移行が落ちる
 ```
+
+> **提出前に 0010 と 0012 が本番へ流れていることを必ず確認すること。**
+> 0010 が無いとデモの印が付かず、実在の店に付いた架空のレビューが
+> 本物として表示される。0012 が無いと不適切な表現のフィルタが
+> 端末側だけになり、API を直接叩けば素通りする（Guideline 1.2）。
+>
+> `supabase/check_state.sql` を SQL Editor に貼れば、
+> どこまで適用済みかと、デモの印が実際に付いているかを一度に確認できる。
 
 - **Authentication > Providers**: 「Email」を有効化
 - **Authentication > Email**: 「Confirm email」を有効にする場合、確認メールのリダイレクト先に
@@ -214,7 +223,7 @@ npx expo run:ios --device
    - **プラットフォーム**: iOS
    - **名前**: MeshiMap（App Store 上で一意。取られていたら変更が必要）
    - **プライマリ言語**: 日本語
-   - **バンドルID**: `com.shonaka.meshimap`
+   - **バンドルID**: `jp.yournist.meshimap`
      （事前に Certificates, Identifiers & Profiles → Identifiers で登録しておく）
    - **SKU**: 任意の管理用文字列（例 `meshimap-001`）
 
@@ -315,9 +324,10 @@ Distribute App → App Store Connect → Upload
 | 項目 | 実装 |
 |---|---|
 | アカウント削除 | `delete_my_account()` が `auth.users` ごと削除。他のテーブルは連鎖削除 |
-| 通報・ブロック | プロフィール画面から。`reports` / `blocks` テーブル |
+| 通報 | **投稿詳細**（ヘッダーの旗アイコン / 本文末の「この投稿を通報する」）と**プロフィール**の2箇所。`reports` テーブル |
+| ブロック | プロフィール画面から。`blocks` テーブル |
 | 規約への同意 | 新規登録画面で個別のチェックとして取得 |
-| 権限の説明文 | 位置・写真・カメラの3つが日本語で用途を明記 |
+| 権限の説明文 | 位置・写真の2つが日本語で用途を明記（カメラは使っていないので宣言しない） |
 | 輸出コンプライアンス | `ITSAppUsesNonExemptEncryption: false` |
 | 位置情報の保存 | していない。押したときに1回取るだけで、サーバーに送っていない |
 | アイコン・スプラッシュ | `mobile/assets/` に3点とも存在 |
@@ -348,7 +358,33 @@ App Store Review Guidelines で明確に要求されている項目です。
 
 ### Guideline 1.2 — UGC アプリの必須要件（実装済み）
 
-- [x] **不適切コンテンツの通報機能** → プロフィールの「通報」ボタン
+- [x] **不適切コンテンツのフィルタリング** → 保存する前にテキストを検査する。
+      対象は **店舗名・本文（ひとこと）・アカウント名・自己紹介** の4項目。
+      ユーザーID は小文字英字3〜20文字の既存制約で別に守られているため見ない。
+
+      | どこ | 何のため | ファイル |
+      |---|---|---|
+      | 端末側 | 押す前に教える。写真を上げる前に止める | `mobile/src/lib/moderation.ts` |
+      | DB側 | 最後に止める。改造しても外せない | `supabase/migrations/0012_content_moderation.sql` |
+
+      端末側だけだと、アプリを改造されるか anon キーで PostgREST を
+      直接叩かれれば素通りする。DB側だけだと、送信するまで駄目だと分からない。
+      **両方に同じ語の一覧を持っている**ので、`npm run check:moderation` が
+      毎回一致を検査する（食い違うと素通しの穴になるため）。
+
+      過検知のほうが害が大きい点に注意すること。飲食レビューは
+      「バカうまい」「死ぬほど美味い」「デブ活」のように褒め言葉が汚く、
+      「シャブシャブ」「支那そば」「麻薬卵」「グレープフルーツ」には
+      禁止語が部分文字列として入る。**これらを弾かないことを
+      `npm run test:moderation` が毎回確認する。語を足したら必ず走らせること。**
+
+      画像の判定はしていない（外部の判定APIを入れていない）。
+      写真は通報とブロックで拾う。
+- [x] **不適切コンテンツの通報機能** → **投稿単位**（投稿詳細のヘッダー旗アイコン、
+      および本文末の「この投稿を通報する」）と**アカウント単位**（プロフィールの
+      「通報」ボタン）の両方。投稿への通報は `target_post_id` だけを入れる。
+      `admin_open_reports` が投稿から作者を引くため、両方入れると
+      アカウントへの通報と見分けが付かなくなる
 - [x] **ユーザーのブロック機能** → プロフィールの「ブロック」ボタン
 - [x] **規約（EULA）への同意** → 新規登録画面のチェックボックス
 - [ ] **24時間以内に通報へ対応する体制** → `reports` テーブルを毎日確認する運用を決める

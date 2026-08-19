@@ -35,13 +35,17 @@ const FORBIDDEN = [
   'NSCalendarsUsageDescription',
   'NSMotionUsageDescription',
   'NSBluetoothAlwaysUsageDescription',
+  // カメラは一度も起動していない（launchCameraAsync の呼び出しが0件）。
+  // 宣言だけ残っていたので外した。撮影機能を足す日が来たら、
+  // このキーを REQUIRED へ戻し、app.config.ts の
+  // expo-image-picker に cameraPermission の文言を書くこと。
+  'NSCameraUsageDescription',
 ]
 
 /** 無いと困るもの。文言が日本語であることも見る。 */
 const REQUIRED = [
   'NSLocationWhenInUseUsageDescription',
   'NSPhotoLibraryUsageDescription',
-  'NSCameraUsageDescription',
 ]
 
 // ★ npx を呼ばずに Expo の CLI を直接 node で動かす。
