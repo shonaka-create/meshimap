@@ -1,0 +1,5 @@
+# patch-package のパッチは 1 バイトでも変わると当たらなくなる。
+# Windows で作業すると Git が改行を CRLF に変換してしまい、
+# LF のままの node_modules に対して適用できずビルドが落ちる。
+# 変換の対象外にする。
+*.patch -text
