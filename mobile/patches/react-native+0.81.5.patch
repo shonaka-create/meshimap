@@ -1,0 +1,31 @@
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+index 2a67797..343a4e7 100644
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,25 @@ void ObjCTurboModule::performVoidMethodInvocation(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      // ── MeshiMap パッチ（上流 react-native 0.81.5 のバグ回避）──────────
++      // 上流はここで convertNSExceptionToJSError(runtime, ...) を呼んでいる。
++      // しかしこの block は下の invokeAsync に渡され、JS スレッドではない
++      // キュー（com.meta.react.turbomodulemanager.queue）で実行される。
++      // Hermes はスレッドセーフではないので、JS スレッドが動いている最中に
++      // ここから Error を作るとヒープが壊れ、JS スレッド側が無効アドレスを
++      // 読んで SIGSEGV で即死する。しかも何の手掛かりも残らない。
++      //
++      // ランタイムには一切触らず、どのモジュールのどのメソッドが投げたかを
++      // 添えて NSException のまま投げ直す。捕まえ手がいないため、
++      // クラッシュログに例外の名前と理由がそのまま残る。
++      (void)runtime;
++      @throw [NSException
++          exceptionWithName:exception.name
++                     reason:[NSString stringWithFormat:@"%s.%s: %@",
++                                                       moduleName,
++                                                       methodNameStr.c_str(),
++                                                       exception.reason]
++                   userInfo:exception.userInfo];
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }

@@ -3,7 +3,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { supabase, startAuthAutoRefresh } from '../lib/supabase'
 import { containsProhibitedContent, PROHIBITED_CONTENT_MESSAGE } from '../lib/moderation'
 import type { Profile } from '../lib/types'
 
@@ -63,6 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
 
+    // AppState への登録はここで行う。モジュール直下でやると
+    // バンドル評価中にネイティブを叩くことになり、起動が不安定になる。
+    const stopAutoRefresh = startAuthAutoRefresh()
+
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return
       setSession(data.session)
@@ -90,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
       sub.subscription.unsubscribe()
+      stopAutoRefresh()
     }
   }, [loadProfile])
 

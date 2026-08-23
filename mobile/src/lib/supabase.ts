@@ -86,10 +86,25 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
  * RN ではタイマーがバックグラウンドで止まるため、
  * フォアグラウンド復帰時にトークン自動更新を回し直す。
  * これが無いと「久しぶりに開くとログアウトされている」が起きる。
+ *
+ * ★ これをモジュール直下（import された瞬間）で呼ばないこと。
+ *   AppState.addEventListener は TurboModule の void メソッドを叩く。
+ *   バンドル評価中に叩くと、ネイティブ側が例外を投げたときに
+ *   React Native が JS スレッド以外から Hermes を触りにいく
+ *   （RCTTurboModule.mm の performVoidMethodInvocation）。
+ *   Hermes はスレッドセーフではないのでヒープが壊れ、
+ *   原因の分からない SIGSEGV で起動即死する。
+ *   マウント後（AuthProvider の effect）から呼べばこの窓に入らない。
+ *
+ * 戻り値は解除関数。effect の後始末でそのまま返せる。
  */
-if (Platform.OS !== 'web') {
-  AppState.addEventListener('change', (state) => {
+export function startAuthAutoRefresh(): () => void {
+  if (Platform.OS === 'web') return () => {}
+
+  const sub = AppState.addEventListener('change', (state) => {
     if (state === 'active') supabase.auth.startAutoRefresh()
     else supabase.auth.stopAutoRefresh()
   })
+
+  return () => sub.remove()
 }
