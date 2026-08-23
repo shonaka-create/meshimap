@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-index 2a67797..343a4e7 100644
+index 2a67797..cd2a3b8 100644
 --- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -435,7 +435,25 @@ void ObjCTurboModule::performVoidMethodInvocation(
+@@ -435,7 +435,47 @@ void ObjCTurboModule::performVoidMethodInvocation(
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
@@ -15,17 +15,39 @@ index 2a67797..343a4e7 100644
 +      // ここから Error を作るとヒープが壊れ、JS スレッド側が無効アドレスを
 +      // 読んで SIGSEGV で即死する。しかも何の手掛かりも残らない。
 +      //
-+      // ランタイムには一切触らず、どのモジュールのどのメソッドが投げたかを
-+      // 添えて NSException のまま投げ直す。捕まえ手がいないため、
-+      // クラッシュログに例外の名前と理由がそのまま残る。
++      // 一度は NSException のまま投げ直したが、iOS のクラッシュログには
++      // 例外の名前も理由も載らなかった（asi は "abort() called" のみ）。
++      // そのため、投げた相手をファイルに書き出して端末から取り出す。
++      // 書き出し先は Documents で、UIFileSharingEnabled を立てているので
++      // 「ファイル」アプリの MeshiMap から見える。
 +      (void)runtime;
-+      @throw [NSException
-+          exceptionWithName:exception.name
-+                     reason:[NSString stringWithFormat:@"%s.%s: %@",
-+                                                       moduleName,
-+                                                       methodNameStr.c_str(),
-+                                                       exception.reason]
-+                   userInfo:exception.userInfo];
++      @try {
++        NSString *entry = [NSString
++            stringWithFormat:@"---- %@ ----\nmodule : %s\nmethod : %s\nname   : %@\nreason : %@\nstack  :\n%@\n\n",
++                             [NSDate date],
++                             moduleName,
++                             methodNameStr.c_str(),
++                             exception.name,
++                             exception.reason,
++                             [exception.callStackSymbols componentsJoinedByString:@"\n"]];
++
++        NSString *dir =
++            [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
++        NSString *path = [dir stringByAppendingPathComponent:@"turbomodule-exception.txt"];
++
++        NSString *prev = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
++        NSString *out = prev.length > 0 ? [prev stringByAppendingString:entry] : entry;
++
++        [out writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
++        NSLog(@"[MeshiMap診断] %@", entry);
++      } @catch (NSException *ignored) {
++        // 記録に失敗しても、元の呼び出しの失敗より優先することはない
++      }
++
++      // 握りつぶして続行する。上流のようにランタイムを触ると即死するし、
++      // 投げ直しても文言が残らないと分かったため、ここでは戻るだけにする。
++      // これで起動が通るなら、投げていたメソッドは起動に必須ではない。
++      return;
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
      }
