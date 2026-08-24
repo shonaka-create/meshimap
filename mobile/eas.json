@@ -23,12 +23,6 @@
     "production": {
       "autoIncrement": true,
       "environment": "production"
-    },
-    "diagnose": {
-      "extends": "production",
-      "env": {
-        "RCT_USE_PREBUILT_RNCORE": "0"
-      }
     }
   },
   "submit": {

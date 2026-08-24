@@ -46,17 +46,6 @@ const config: ExpoConfig = {
       //   撮影機能を足すときは、ここと expo-image-picker の
       //   cameraPermission、check-ios-config.mjs の3箇所を戻すこと。
       ITSAppUsesNonExemptEncryption: false,
-
-      // ★ ここから下は起動時クラッシュの調査用。原因が判明したら消すこと。
-      //   diagnose プロファイル（eas.json で RCT_USE_PREBUILT_RNCORE=0 を
-      //   渡す）のときだけ立てる。これが立っていると Documents が
-      //   「ファイル」アプリから見えるので、
-      //   patches/react-native+0.81.5.patch が書き出す
-      //   turbomodule-exception.txt を端末から取り出せる。
-      //   通常の production ビルドには入らない。
-      ...(process.env.RCT_USE_PREBUILT_RNCORE === '0'
-        ? { UIFileSharingEnabled: true, LSSupportsOpeningDocumentsInPlace: true }
-        : {}),
     },
   },
 

@@ -4,7 +4,6 @@
   "main": "expo-router/entry",
   "private": true,
   "scripts": {
-    "postinstall": "patch-package",
     "start": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
@@ -20,6 +19,7 @@
     "expo": "~54.0.37",
     "expo-blur": "~15.0.7",
     "expo-constants": "~18.0.14",
+    "expo-font": "~14.0.12",
     "expo-image": "~3.0.9",
     "expo-image-manipulator": "~14.0.7",
     "expo-image-picker": "~17.0.8",
@@ -45,7 +45,6 @@
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
-    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   }
 }
