@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import MapView, { Marker, type MapPressEvent, type Region } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -61,7 +61,7 @@ export default function HomeMap() {
   const insets = useSafeAreaInsets()
   const mapRef = useRef<MapView>(null)
   const cloudRef = useRef<CloudTransitionHandle>(null)
-  const { coords, permission, locating, locate } = useLocation()
+  const { permission, locating, locate, lastKnown } = useLocation()
 
   const [drill, setDrill] = useState<Drill>({ level: 'prefecture' })
   const [regions, setRegions] = useState<RegionCount[]>([])
@@ -131,12 +131,29 @@ export default function HomeMap() {
     setSelectedPost(null)
   }, [])
 
-  /* ── 起動時に一度だけ現在地を取りに行く ─────────────── */
+  /* ── 起動時に現在地へ寄せる ─────────────────────────
+   *
+   * 2段構えにしている。実測（locate）は衛星を待つので数秒かかり、
+   * そのあいだ日本全体が映っていると「位置がおかしい」と感じる。
+   * まず端末が覚えている位置で寄せて、あとから実測で寄せ直す。
+   */
   useEffect(() => {
-    locate().then((c) => {
-      if (c) flyTo({ ...c, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800)
-    })
-  }, [locate, flyTo])
+    let cancelled = false
+
+    ;(async () => {
+      const quick = await lastKnown()
+      if (!cancelled && quick) {
+        flyTo({ ...quick, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 600)
+      }
+
+      const exact = await locate()
+      if (!cancelled && exact) {
+        flyTo({ ...exact, latitudeDelta: 0.08, longitudeDelta: 0.08 }, 600)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [locate, lastKnown, flyTo])
 
   /* ── 階層に応じた投稿数を取得 ─────────────────────── */
   useEffect(() => {
@@ -315,10 +332,28 @@ export default function HomeMap() {
 
   /* ── 現在地に戻る ─────────────────────────────── */
   const recenter = useCallback(async () => {
-    const c = coords ?? (await locate())
-    if (!c) return
-    flyTo({ ...c, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600)
-  }, [coords, locate, flyTo])
+    // ★ 前に取った座標を使い回さないこと。
+    //   使い回すと、押すたびに「起動したときの場所」へ飛ぶ。
+    //   移動したあとに押した人には、ボタンが壊れているようにしか見えない。
+    const c = await locate()
+
+    if (!c) {
+      // 何も起きないと壊れて見える。断られているなら、そう言う。
+      if (permission === 'denied') {
+        Alert.alert(
+          '位置情報が使えません',
+          '現在地を表示するには、設定で MeshiMap に位置情報の利用を許可してください。',
+          [
+            { text: '閉じる', style: 'cancel' },
+            { text: '設定を開く', onPress: () => Linking.openSettings() },
+          ]
+        )
+      }
+      return
+    }
+
+    flyTo({ ...c, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600)
+  }, [locate, permission, flyTo])
 
   const visiblePosts = useMemo(
     () => posts.filter((p) => genre === 'すべて' || p.genre === genre),
@@ -726,32 +761,74 @@ function PostPin({ genre, selected }: { genre: string; selected: boolean }) {
  * 標準の Google 地図は道路が黄色・施設が色付きで、写真と一緒に置くと
  * 画面が散らかる。彩度を落として紙面に近づけ、
  * 主役（写真とピン）が浮くようにする。
- * 施設や交通のラベルも消して、こちらのピンだけが情報になるようにした。
+ *
+ * ★ ただし消しすぎないこと。
+ *   以前は poi と transit をまるごと off にしていたが、そうすると
+ *   道路と水面しか残らず「高速道路の路線図」のようになる。
+ *   地図は「どこか」が分かって初めて地図なので、
+ *   場所の手掛かりになるものは残す:
+ *
+ *     - 駅名   … 日本の街は駅で位置を把握する。線路の線は消して名前だけ残す
+ *     - 公園   … 面として残ると街の形が読める
+ *     - 市区町村名・町名 … 最後に「どこか」を答えるのはこれ
+ *
+ *   消すのは、こちらのピンと役目がぶつかるものだけ:
+ *
+ *     - 店舗（poi.business）… 飲食店が大量に出るとこちらのピンが埋もれる
+ *     - 施設のアイコン … 名前は残し、色付きの記号だけ落とす
  */
 const LIGHT_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#F5F3EF' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8A837B' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#6E6862' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#FAF9F7' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+
+  // 店舗だけ消す。こちらのピンと競合するのはここだけ
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  // 施設は名前を残してアイコンだけ落とす
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#E4EADF' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#77856F' }] },
+
+  // 線路の線は消すが、駅名は残す
+  { featureType: 'transit.line', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit.station', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#5F7A78' }] },
+
   { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: '#EFECE6' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
   { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E7E3DB' }] },
   { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#A39C93' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#F0EBE2' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#DFE5E4' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#D7E1E0' }] },
+
+  // 地名。ここが読めないと地図として成立しない
   { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#DDD8CF' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#4A443E' }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#6E6862' }] },
 ]
 
 const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#1F1B19' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#A79E97' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#141110' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#232A22' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#7C8A76' }] },
+
+  { featureType: 'transit.line', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit.station', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#8AA3A1' }] },
+
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2B2523' }] },
   { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#7C736D' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0F1A1A' }] },
+
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#D6CEC6' }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#A79E97' }] },
 ]
 
 const styles = StyleSheet.create({

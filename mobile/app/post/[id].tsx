@@ -190,15 +190,23 @@ export default function PostDetail() {
           title: '',
           // ヘッダーにも出す。本文が長いとき、下まで
           // スクロールしないと通報できないのでは導線として弱い。
+          //
+          // ★ 大きさを自分で決めること。
+          //   アイコンだけを裸で置くと、iOS のヘッダーは幅を測れず
+          //   右端に食い込んだり潰れたりする。
+          //   44x44 は Apple のヒットターゲットの下限でもある。
           headerRight: canReport
             ? () => (
                 <Pressable
                   onPress={() => setReporting(true)}
-                  hitSlop={12}
                   accessibilityRole="button"
                   accessibilityLabel="この投稿を通報する"
+                  style={({ pressed }) => [
+                    styles.headerBtn,
+                    { opacity: pressed ? 0.45 : 1 },
+                  ]}
                 >
-                  <Ionicons name="flag-outline" size={21} color={colors.text} />
+                  <Ionicons name="flag-outline" size={20} color={colors.text} />
                 </Pressable>
               )
             : undefined,
@@ -320,10 +328,18 @@ export default function PostDetail() {
             <Txt variant="body" style={{ lineHeight: 27 }}>{post.caption}</Txt>
           )}
 
-          {/* ── シチュエーション・ハッシュタグ ──────────── */}
-          {(post.situations?.length > 0 || post.hashtags?.length > 0) && (
+          {/* ── シチュエーション ─────────────────────
+           *
+           * ★ ハッシュタグと同じ行に流さないこと。
+           *   囲みのあるチップと、囲みのない #文字列 を混ぜると、
+           *   どこまでが1つのかたまりなのか分からなくなる。
+           *   別のものは別の行に置く。
+           *
+           * こちらは決められた選択肢（デート・ひとり飯…）なので、
+           * 数が知れている。チップのまま並べる。 */}
+          {post.situations?.length > 0 && (
             <View style={styles.tags}>
-              {(post.situations ?? []).map((s) => (
+              {post.situations.map((s) => (
                 <View
                   key={s}
                   style={[styles.tag, { borderColor: colors.border, backgroundColor: colors.surface }]}
@@ -331,10 +347,17 @@ export default function PostDetail() {
                   <Txt variant="small" tone="muted">{SITUATION_EMOJI[s] ?? ''} {s}</Txt>
                 </View>
               ))}
-              {(post.hashtags ?? []).map((h) => (
-                <Txt key={h} variant="small" tone="accent">#{h}</Txt>
-              ))}
             </View>
+          )}
+
+          {/* ── ハッシュタグ ─────────────────────────
+           *
+           * 自由入力なので数も長さも読めない。1つずつ囲むと
+           * 画面が四角だらけになるので、文字のまま続けて流す。 */}
+          {post.hashtags?.length > 0 && (
+            <Txt variant="small" tone="accent" style={styles.hashtags}>
+              {post.hashtags.map((h) => `#${h}`).join('   ')}
+            </Txt>
           )}
 
           {/* ── いいね・コメント数 ─────────────────── */}
@@ -453,6 +476,9 @@ const styles = StyleSheet.create({
     paddingVertical: space.md, borderTopWidth: 1, borderBottomWidth: 1,
   },
   tags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  hashtags: { lineHeight: 22 },
+  /** ヘッダー右のボタン。幅を自分で持たないと iOS のヘッダーで潰れる */
+  headerBtn: { width: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' },
   tag: {
     paddingHorizontal: space.md, paddingVertical: 5,
     borderRadius: radius.sm, borderWidth: 1,
