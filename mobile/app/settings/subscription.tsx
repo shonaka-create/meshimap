@@ -5,7 +5,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
 import { useTheme, space, radius } from '../../src/theme'
 import { Button, Loading, Txt } from '../../src/components/ui'
-import { FREE_FOLLOW_LIMIT, type FollowQuota } from '../../src/lib/limits'
+import { FREE_MAP_LIMIT, type MapQuota } from '../../src/lib/limits'
 import {
   BENEFITS, BILLING_READY, BillingNotReadyError, DEFAULT_PLAN_ID,
   MANAGE_SUBSCRIPTION_URL, PLANS, planOf, purchase, restore, type Plan,
@@ -15,8 +15,8 @@ import {
  * プラン画面。
  *
  * 買う画面は、機能の一覧ではなく「いま何ができていないか」から始める。
- * フォロー枠が埋まっている人に無制限を売るのと、
- * まだ1人もフォローしていない人に売るのとでは、
+ * 地図に出せる枠が埋まっている人に無制限を売るのと、
+ * まだ誰の地図も出していない人に売るのとでは、
  * 同じ文でも意味が違う。最初に現状を出してから中身を出す。
  *
  * ★ 決済はまだ繋がっていない（src/lib/billing.ts）。
@@ -31,18 +31,29 @@ export default function Subscription() {
   const { colors } = useTheme()
   const router = useRouter()
 
-  const [quota, setQuota] = useState<FollowQuota | null>(null)
+  const [quota, setQuota] = useState<MapQuota | null>(null)
   const [selected, setSelected] = useState<Plan['id']>(DEFAULT_PLAN_ID)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.rpc('my_follow_quota')
+    const { data, error } = await supabase.rpc('my_map_quota')
+
+    // 移行 0013 を流す前のDBには my_map_quota が無い。
+    // 何も出さずに読み込みのまま止めると、買えるのかどうかも分からない。
+    // 旧関数（my_follow_quota）に落として、数字だけでも出す。
     if (error) {
-      console.warn('[subscription] 取得に失敗', error.message)
+      const legacy = await supabase.rpc('my_follow_quota')
+      if (legacy.error) {
+        console.warn('[subscription] 取得に失敗', error.message)
+        return
+      }
+      const row = (Array.isArray(legacy.data) ? legacy.data[0] : legacy.data) as MapQuota
+      setQuota({ ...row, follows_cnt: row.used })
       return
     }
+
     // RPC は1行のテーブルを返す
-    setQuota((Array.isArray(data) ? data[0] : data) as FollowQuota)
+    setQuota((Array.isArray(data) ? data[0] : data) as MapQuota)
   }, [])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
@@ -104,7 +115,7 @@ export default function Subscription() {
             <Txt variant="caption" tone="faint" style={styles.eyebrow}>YOUR PLAN</Txt>
             <Txt variant="title">プレミアム</Txt>
             <Txt variant="small" tone="muted">
-              フォロー {quota.used}人（上限なし）
+              地図に出している {quota.used}人（上限なし）
             </Txt>
           </View>
 
@@ -146,14 +157,24 @@ export default function Subscription() {
         <View style={[styles.hero, { borderColor: colors.border }]}>
           <Txt variant="caption" tone="faint" style={styles.eyebrow}>MESHIMAP PREMIUM</Txt>
           <Txt variant="title">
-            {full ? 'フォロー枠が埋まりました' : '他の人の地図を、もっと'}
+            {full ? '地図に出せる枠が埋まりました' : '他の人の地図を、もっと'}
           </Txt>
           <View style={styles.quotaRow}>
-            <Ionicons name="people-outline" size={15} color={colors.textMuted} />
+            <Ionicons name="map-outline" size={15} color={colors.textMuted} />
             <Txt variant="small" tone="muted">
-              フォロー {quota.used} / {quota.limit_count}人
+              地図に出している {quota.used} / {quota.limit_count}人
             </Txt>
           </View>
+          {/* フォローは止まっていない。眠っている人数を出すと、
+              何が解放されるのかが自分の状況として分かる。 */}
+          {quota.follows_cnt > quota.used && (
+            <View style={styles.quotaRow}>
+              <Ionicons name="people-outline" size={15} color={colors.textMuted} />
+              <Txt variant="small" tone="muted">
+                フォロー中 {quota.follows_cnt}人 · うち{quota.follows_cnt - quota.used}人はまだ地図に出ていません
+              </Txt>
+            </View>
+          )}
           <View style={[styles.track, { backgroundColor: colors.border }]}>
             <View
               style={[
@@ -257,9 +278,9 @@ export default function Subscription() {
         <View style={[styles.note, { backgroundColor: colors.surfaceAlt }]}>
           <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
           <Txt variant="small" tone="muted" style={{ flex: 1 }}>
-            運営アカウントはフォローの人数に含まれません。
+            運営アカウントはこの人数に含まれません。フォローは何人でもできます。
             無料のままでも、行った店を地図に残す機能はすべて使えます
-            （フォローは{FREE_FOLLOW_LIMIT}人まで）。
+            （同時に地図へ出せるのは{FREE_MAP_LIMIT}人まで）。
           </Txt>
         </View>
       </ScrollView>

@@ -88,10 +88,7 @@ export default function Pick() {
           </Txt>
         </View>
 
-        <Section
-          title="どんな場面"
-          note="いちばん効く条件です。選ばなければ場面では絞りません。"
-        >
+        <Section title="どんな場面">
           {SITUATIONS.map((s) => (
             <Chip
               key={s}

@@ -92,8 +92,10 @@ export interface Benefit {
 export const BENEFITS: readonly Benefit[] = [
   {
     icon: 'infinite-outline',
-    title: 'フォローが無制限',
-    body: '無料では運営を除いて2人まで。人数を気にせず地図を集められます。',
+    title: '地図に出せる人数が無制限',
+    body: 'フォローは無料でも何人でもできます。'
+      + 'そのうち同時に地図へ出せるのが、無料では運営を除いて2人まで。'
+      + 'プレミアムなら全員ぶんの地図をそのまま重ねられます。',
   },
   {
     icon: 'trophy-outline',

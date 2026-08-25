@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet,
+  ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet,
   useWindowDimensions, View,
 } from 'react-native'
 import { Image } from 'expo-image'
@@ -54,6 +54,16 @@ export default function PostDetail() {
    *   報告する側にとっても重すぎる。
    */
   const [reporting, setReporting] = useState(false)
+
+  /**
+   * 削除中。
+   *
+   * ★ 投稿を消す手段は必ず要る。
+   *   これまでは、一度出したものを取り下げる方法がどこにも無かった。
+   *   間違えて公開した人にできるのは非公開に戻すことだけで、
+   *   写真そのものはサーバーに残り続けていた。
+   */
+  const [deleting, setDeleting] = useState(false)
 
   /**
    * 表示回数を記録した投稿。
@@ -153,6 +163,61 @@ export default function PostDetail() {
     }
   }, [user, post, liked, liking])
 
+  /**
+   * 削除。
+   *
+   * 消す順番は「投稿の行 → 写真の実体」。
+   *   post_images・いいね・コメントは ON DELETE CASCADE で一緒に消え、
+   *   投稿数とエリア数はトリガーが数え直す。
+   *   逆にすると、写真だけ消えた投稿が地図に残る時間ができる。
+   *   Storage の後片付けに失敗しても、見えないゴミが残るだけで済ませる。
+   */
+  const confirmDelete = useCallback(() => {
+    if (!user || !post || deleting) return
+
+    Alert.alert(
+      'この投稿を削除しますか？',
+      '写真・いいね・コメントも一緒に消えます。元に戻すことはできません。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除する',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true)
+
+            const { error } = await supabase.from('posts').delete().eq('id', post.id)
+            if (error) {
+              setDeleting(false)
+              Alert.alert('削除できませんでした', error.message)
+              return
+            }
+
+            try {
+              // アップロード時のパスは `${uid}/${postId}/${i}.jpg`（post/new.tsx）
+              const dir = `${user.id}/${post.id}`
+              const { data: files } = await supabase.storage.from('post-images').list(dir)
+              if (files && files.length > 0) {
+                await supabase.storage
+                  .from('post-images')
+                  .remove(files.map((f) => `${dir}/${f.name}`))
+              }
+            } catch (e) {
+              console.warn('[post] 写真の後片付けに失敗', e)
+            }
+
+            // 戻り先（プロフィールや地図）は画面に戻った時点で読み直すので、
+            // ここで一覧を触る必要はない。
+            // 通知などから直接開かれていて戻り先が無い場合もあるため、
+            // そのときはプロフィールへ送る（消えた投稿の画面に留まらせない）。
+            if (router.canGoBack()) router.back()
+            else router.replace('/(tabs)/profile')
+          },
+        },
+      ]
+    )
+  }, [user, post, deleting, router])
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -183,6 +248,9 @@ export default function PostDetail() {
    */
   const canReport = !!user && post.user_id !== user.id
 
+  /** 自分の投稿。消せるのは本人だけ（posts の削除ポリシーも同じ条件） */
+  const isMine = !!user && post.user_id === user.id
+
   return (
     <>
       <Stack.Screen
@@ -195,21 +263,35 @@ export default function PostDetail() {
           //   アイコンだけを裸で置くと、iOS のヘッダーは幅を測れず
           //   右端に食い込んだり潰れたりする。
           //   44x44 は Apple のヒットターゲットの下限でもある。
-          headerRight: canReport
-            ? () => (
-                <Pressable
-                  onPress={() => setReporting(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="この投稿を通報する"
-                  style={({ pressed }) => [
-                    styles.headerBtn,
-                    { opacity: pressed ? 0.45 : 1 },
-                  ]}
-                >
-                  <Ionicons name="flag-outline" size={20} color={colors.text} />
-                </Pressable>
-              )
-            : undefined,
+          //
+          //   自分の投稿には通報の代わりに削除を出す。
+          //   同じ場所で役割が入れ替わるだけなので、
+          //   どちらの立場でも右上を見れば用が足りる。
+          headerRight:
+            canReport || isMine
+              ? () => (
+                  <Pressable
+                    onPress={isMine ? confirmDelete : () => setReporting(true)}
+                    disabled={deleting}
+                    accessibilityRole="button"
+                    accessibilityLabel={isMine ? 'この投稿を削除する' : 'この投稿を通報する'}
+                    style={({ pressed }) => [
+                      styles.headerBtn,
+                      { opacity: pressed || deleting ? 0.45 : 1 },
+                    ]}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator size="small" color={colors.textFaint} />
+                    ) : (
+                      <Ionicons
+                        name={isMine ? 'trash-outline' : 'flag-outline'}
+                        size={20}
+                        color={isMine ? colors.danger : colors.text}
+                      />
+                    )}
+                  </Pressable>
+                )
+              : undefined,
         }}
       />
       <ScrollView
@@ -439,6 +521,29 @@ export default function PostDetail() {
             >
               <Ionicons name="flag-outline" size={15} color={colors.textFaint} />
               <Txt variant="small" tone="faint">この投稿を通報する</Txt>
+            </Pressable>
+          )}
+
+          {/* ── 削除（本人のみ）──────────────────────
+                通報と同じ位置に置く。写真と本文を確かめてから
+                消すかどうかを決める流れは、通報と同じ。
+                取り消せない操作なので、色で destructive だと分かるようにする。 */}
+          {isMine && (
+            <Pressable
+              onPress={confirmDelete}
+              disabled={deleting}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="この投稿を削除する"
+              style={({ pressed }) => [
+                styles.report,
+                { opacity: pressed || deleting ? 0.55 : 1 },
+              ]}
+            >
+              <Ionicons name="trash-outline" size={15} color={colors.danger} />
+              <Txt variant="small" tone="danger">
+                {deleting ? '削除しています…' : 'この投稿を削除する'}
+              </Txt>
             </Pressable>
           )}
         </View>

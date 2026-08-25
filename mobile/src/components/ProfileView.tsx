@@ -12,14 +12,15 @@ import { Button, EmptyState, Loading, Stat, Txt } from './ui'
 import { ReportDialog } from './ReportDialog'
 import { RankAvatar, RankBadge } from './RankAvatar'
 import { AvatarEmojiPicker } from './AvatarEmojiPicker'
-import { nextRank, progressToNext, rankOf, remainingToNext } from '../lib/rank'
+import { rankOf } from '../lib/rank'
+import { RankLadder } from './RankLadder'
 import {
   formatImpressions, isFeatured, monthlyTierOf, nextMonthlyTier,
   type MonthlyStanding,
 } from '../lib/impressions'
 import { BILLING_READY } from '../lib/billing'
 import { DemoNotice } from './DemoNotice'
-import { FREE_FOLLOW_LIMIT, isFollowLimitError } from '../lib/limits'
+import { FREE_MAP_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
 
@@ -126,9 +127,13 @@ export function ProfileView({ username, selfId }: Props) {
           )
         }
       } else {
-        // status はサーバー側トリガーが公開/非公開に応じて決める
-        const { error } = await supabase.from('follows')
+        // status も on_map もサーバー側のトリガーが決める。
+        // 入れた行を読み返すのは、地図に出たかどうかをその場で伝えるため
+        // （移行 0013。地図の枠が埋まっていると on_map は false で入る）。
+        const { data: row, error } = await supabase.from('follows')
           .insert({ follower_id: user.id, following_id: profile.id })
+          .select('*')
+          .single()
         if (error) throw error
 
         const next: FollowStatus = profile.is_public ? 'accepted' : 'pending'
@@ -136,28 +141,40 @@ export function ProfileView({ username, selfId }: Props) {
         if (next === 'accepted') {
           setProfile((p) => (p ? { ...p, followers_count: p.followers_count + 1 } : p))
           await load() // 公開アカウントなら投稿が見えるようになるので再取得
+
+          // フォローは通ったが、地図には出ていない。
+          // ★ 黙って通さないこと。あとで地図を見に行って
+          //   「フォローしたのに出てこない」と気づくのでは不具合に見える。
+          //   0013 前のDBには on_map が無いので、そのときは何も言わない。
+          if (row && row.on_map === false) {
+            Alert.alert(
+              'フォローしました',
+              `地図に同時に出せるのは${FREE_MAP_LIMIT}人までなので、この人はまだ地図に出ていません。`
+                + '\n地図の左下「他の人の地図」から、出す人を入れ替えられます。'
+                + (BILLING_READY
+                  ? '\nプレミアムにすると、フォローした人を全員そのまま地図に出せます。'
+                  : ''),
+              BILLING_READY
+                ? [
+                    { text: '閉じる', style: 'cancel' },
+                    { text: 'プランを見る', onPress: () => router.push('/settings/subscription') },
+                  ]
+                : [{ text: '閉じる', style: 'cancel' }]
+            )
+          }
         }
       }
     } catch (e) {
-      // 上限はDBのトリガーが止めている。端末側のチェックだけだと
-      // API を直接叩けば回避できるため、エラーを受けて案内する。
+      // ★ 移行 0013 を流す前のDBだけがここに来る。
+      //   そちらはフォローそのものを2人で止めているので、
+      //   アプリだけ先に更新された端末のために案内を残しておく。
+      //   0013 以降、フォローは何人でもできる（止まるのは地図に出す側）。
       if (isFollowLimitError(e)) {
-        // ★ 決済が繋がるまでは、プランの存在に触れない。
-        //   行き先が「準備中」では、上限を外す方法が無いのに
-        //   あるかのように見せることになる。「無料では」という
-        //   言い方も、買える有料版があるという含みになるので使わない。
         Alert.alert(
           'フォローできる人数の上限です',
-          (BILLING_READY
-            ? `無料でフォローできるのは${FREE_FOLLOW_LIMIT}人までです。`
-            : `フォローできるのは${FREE_FOLLOW_LIMIT}人までです。`)
+          `いまはフォローできるのは${FREE_MAP_LIMIT}人までです。`
             + '\n（運営アカウントはこの人数に含まれません）',
-          BILLING_READY
-            ? [
-                { text: '閉じる', style: 'cancel' },
-                { text: 'プランを見る', onPress: () => router.push('/settings/subscription') },
-              ]
-            : [{ text: '閉じる', style: 'cancel' }]
+          [{ text: '閉じる', style: 'cancel' }]
         )
       } else {
         Alert.alert('エラー', (e as Error).message)
@@ -229,9 +246,6 @@ export function ProfileView({ username, selfId }: Props) {
   const locked = !profile.is_public && !isOwn && followStatus !== 'accepted'
 
   const rank = rankOf(profile.posts_count, profile.areas_count)
-  const next = nextRank(rank)
-  const progress = progressToNext(profile.posts_count, profile.areas_count, rank, next)
-  const remaining = remainingToNext(profile.posts_count, profile.areas_count, next)
 
   const monthlyTier = monthlyTierOf(standing?.impressions ?? 0)
   const monthlyNext = nextMonthlyTier(monthlyTier)
@@ -368,11 +382,12 @@ export function ProfileView({ username, selfId }: Props) {
         </Pressable>
       )}
 
-      {/* ── 次のランクまで（自分のページだけ） ─────────────
-        * 進捗だけ見せても動けないので、
-        * 「あと何をすればいいか」を1行の導線にして添える。
+      {/* ── ランク（自分のページだけ） ─────────────────
+        * 5段のうちのどこに居て、次の段に何が足りないかを
+        * この枠の中だけで分かるようにしてある（RankLadder）。
+        * 押すと投稿画面へ。進捗を見せても、そこから動けなければ意味がない。
         */}
-      {isOwn && next && (
+      {isOwn && (
         <Pressable
           onPress={() => router.push('/post/new')}
           style={({ pressed }) => [
@@ -380,29 +395,11 @@ export function ProfileView({ username, selfId }: Props) {
             { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
           ]}
         >
-          <View style={styles.rankBoxTop}>
-            <Txt variant="smallMed">{remaining}</Txt>
-            <Txt variant="caption" tone="faint">{Math.round(progress * 100)}%</Txt>
-          </View>
-          <View style={[styles.track, { backgroundColor: colors.border }]}>
-            <View
-              style={[
-                styles.fill,
-                { width: `${Math.max(progress * 100, 2)}%`, backgroundColor: next.frame },
-              ]}
-            />
-          </View>
-          <View style={styles.rankBoxTop}>
-            <Txt variant="caption" tone="faint">
-              {profile.areas_count < next.areas
-                ? '行ったことのない街で記録すると早く上がります'
-                : 'エリアは投稿した街の数です'}
-            </Txt>
-            <View style={styles.cta}>
-              <Txt variant="caption" tone="accent">記録する</Txt>
-              <Ionicons name="chevron-forward" size={12} color={colors.accent} />
-            </View>
-          </View>
+          <RankLadder
+            rank={rank}
+            postsCount={profile.posts_count}
+            areasCount={profile.areas_count}
+          />
         </Pressable>
       )}
 
@@ -456,6 +453,7 @@ export function ProfileView({ username, selfId }: Props) {
           <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
           <Txt variant="small" tone="muted" style={{ flex: 1 }}>
             投稿は初期状態では非公開です。写真の鍵アイコンを押すと公開/非公開を切り替えられます。
+            写真を開くと、その投稿を削除できます。
           </Txt>
         </View>
       )}
@@ -620,9 +618,6 @@ const styles = StyleSheet.create({
   rankBoxTop: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  track: { height: 4, overflow: 'hidden' },
-  fill: { height: '100%' },
-  cta: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   lockBadge: {
     position: 'absolute', top: 5, right: 5,

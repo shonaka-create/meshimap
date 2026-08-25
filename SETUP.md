@@ -25,19 +25,27 @@
 | 3 | `supabase/migrations/0002_areas_and_situations.sql` | エリア階層（station→area）とシチュエーション |
 | 4 | `supabase/migrations/0003_admin.sql` | 運営（管理者）アカウントと通報の審査 |
 | 5 | `supabase/migrations/0004_ranks_and_map_pins.sql` | ランク・アバター絵柄・地図のアイコン |
-| 6 | `supabase/migrations/0005_admin_pin_and_follow_limit.sql` | 運営アカウントの常時表示とフォロー上限（無料2人） |
+| 6 | `supabase/migrations/0005_admin_pin_and_follow_limit.sql` | 運営アカウントの常時表示とフォロー上限（無料2人 / **0013 で外れます**） |
 | 7 | `supabase/migrations/0006_repair_counters.sql` | 手動更新時代にズレたカウンタの数え直し |
 | 8 | `supabase/migrations/0007_backfill_post_regions.sql` | 既存投稿への都道府県・エリアの後埋め |
 | 9 | `supabase/migrations/0008_impressions_featured_monthly.sql` | 表示回数・注目フラグ・月間ランク |
 | 10 | `supabase/migrations/0009_premium_gates.sql` | プレミアムの線引き（ランキング全順位・注目一覧） |
 | 11 | `supabase/migrations/0010_demo_accounts.sql` | デモアカウントの印（画面に「デモです」と出す） |
+| 12 | `supabase/migrations/0011_recommend_spots.sql` | 「今日どこ行く？」のおすすめ（条件で店を出す） |
+| 13 | `supabase/migrations/0012_content_moderation.sql` | 不適切な表現のフィルタ（審査の必須要件） |
+| 14 | `supabase/migrations/0013_map_audience_gate.sql` | フォローの上限を外し、**地図に出せる人数**（無料2人）を線にする |
 
 > **`0010` はアプリを更新する前に流してください。**
 > `profiles.is_demo` を読むようになるので、列が無いDBに新しいアプリを繋ぐと
 > デモ表示が出ないだけで済みますが、印が付いていないデモデータが
 > そのまま本物のレビューとして見えます。
 >
-> ⚠ **11 まで必ず実行してください。**
+> **`0013` もアプリを更新する前に流してください。**
+> アプリは「フォローは何人でも / 地図に同時に出せるのは2人まで」で作ってあります。
+> 流していないDBに新しいアプリを繋ぐと、3人目をフォローした時点で
+> 0005 のトリガーに止められ、地図に出す人の入れ替えもできません。
+>
+> ⚠ **14 まで必ず実行してください。**
 > `schema.sql` は開発初期のテーブル定義で、そこで止めると `username`・公開設定・
 > 地域列・ランク列・ブロック/通報・各 RPC が存在せず、登録も地図も動きません。
 > さらに `schema.sql` の RLS は `USING (true)`（全員が読める）のままなので、
@@ -71,6 +79,18 @@
 - 運営（`is_admin`）アカウントを、フォローの有無に関わらず地図に必ず表示する
 - 新規登録時に運営を自動フォローする（`handle_new_user()` を置き換え）
 - 無料プランのフォロー上限を 2 人にする（運営は上限に数えない）
+  … **`0013` でこの上限は外れます**（フォローは何人でも。数えるのは地図に出す人数）
+
+`0013` が行うこと（課金の線を移す）:
+
+- `follows.on_map` … その人を地図に出しているか
+- フォロー上限のトリガー（`0005`）を落とす。フォローは何人でもできる
+- `set_map_visible(相手, 出す/出さない)` … 地図に出す人の入れ替え。
+  無料で出せるのは運営を除いて 2 人まで。3人目でここが `map_limit_reached` を返し、
+  アプリはプランの案内を出す
+- `map_pins()` … 返す段でも無料の人数まで絞る
+  （契約が切れた後も `on_map` は残るため。絞る順はフォローした順で固定）
+- `my_map_quota()` … いま何人ぶん出しているか。プラン画面と引き出しの表示に使う
 
 `0004` が行うこと（Snap Map 風のアイコンとランク）:
 

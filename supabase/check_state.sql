@@ -63,7 +63,21 @@ WITH checks (ord, migration, kind, label, present) AS (
     (20, '0012 不適切な表現のフィルタ', 'トリガー', 'posts / profiles',
         (SELECT COUNT(*) FROM pg_trigger
           WHERE NOT tgisinternal
-            AND tgname IN ('trg_enforce_post_content', 'trg_enforce_profile_content')) = 2)
+            AND tgname IN ('trg_enforce_post_content', 'trg_enforce_profile_content')) = 2),
+    -- ★ 0013 を流すまで、フォローは2人で止まったままになる。
+    --   アプリ側は「フォローは自由・地図に出すのが2人まで」で作ってあるので、
+    --   流していないと、3人目をフォローした時点で止まる。
+    (21, '0013 地図に出す人数の線引き', '列', 'follows.on_map',
+        EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='follows' AND column_name='on_map')),
+    (22, '0013 地図に出す人数の線引き', '関数', 'set_map_visible(uuid,boolean)',
+        to_regprocedure('public.set_map_visible(uuid,boolean)') IS NOT NULL),
+    (23, '0013 地図に出す人数の線引き', '関数', 'my_map_quota()',
+        to_regprocedure('public.my_map_quota()') IS NOT NULL),
+    -- 0005 のフォロー上限トリガーは 0013 で落ちる。残っていたら 0013 が未適用。
+    (24, '0013 地図に出す人数の線引き', 'トリガー', 'フォロー上限が外れているか',
+        NOT EXISTS (SELECT 1 FROM pg_trigger
+                     WHERE NOT tgisinternal AND tgname = 'trg_enforce_follow_limit'))
 )
 SELECT
   migration        AS "移行",

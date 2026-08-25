@@ -77,13 +77,14 @@ export default function HomeMap() {
   const [showPins, setShowPins] = useState(true)
 
   /**
-   * 地図に出す相手の絞り込み。
-   * null なら絞り込みなし（自分＋フォロー中の全員）。
-   * フォローが増えるほどピンが重なって読めなくなるので、
-   * フォローを外さずに「今は誰の地図を見るか」だけ切り替えられるようにする。
+   * 「誰の地図を出すか」の引き出し。
+   *
+   * 出す相手は follows.on_map としてDBに持たせてある（移行 0013）。
+   * 端末側で絞り込むのではなく、map_pins() が出せる人だけを返す。
+   * フォローが増えてもピンが重ならないのと、
+   * 無料で出せる人数（運営を除いて2人）を端末の外で守れるのが理由。
    */
   const { user } = useAuth()
-  const [audience, setAudience] = useState<string[] | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   /**
@@ -201,14 +202,11 @@ export default function HomeMap() {
     async (prefecture: string, area: string) => {
       // area が NULL の投稿は RPC 側で city を代わりに使っているので、
       // 取得側も同じ条件（area = X または area が空で city = X）で拾う。
-      let q = supabase
+      const q = supabase
         .from('posts')
         .select(POST_SELECT)
         .eq('prefecture', prefecture)
         .or(`area.eq.${area},and(area.is.null,city.eq.${area})`)
-
-      // 絞り込みは取得段階で効かせる。取ってから捨てると通信が無駄になる。
-      if (audience) q = q.in('user_id', audience)
 
       const { data, error } = await q
         .order('created_at', { ascending: false })
@@ -221,7 +219,7 @@ export default function HomeMap() {
       setPosts((data ?? []).map(toPost))
       setOpenArea(area)
     },
-    [audience]
+    []
   )
 
   /* ── 地域バブルをタップ → 1階層下る ───────────────────
@@ -360,20 +358,8 @@ export default function HomeMap() {
     [posts, genre]
   )
 
-  /** 絞り込み中は、選ばれた人のアイコンだけ残す */
-  const visiblePins = useMemo(
-    () => (audience ? pins.filter((p) => audience.includes(p.user_id)) : pins),
-    [pins, audience]
-  )
-
-  /** 絞り込みを変えたら、開いているエリアの投稿を取り直す */
-  useEffect(() => {
-    if (openArea && drill.level === 'area') {
-      loadPostsForArea(drill.prefecture, openArea)
-    }
-    // openArea を依存に入れると読み込みのたびに再実行されるので入れない
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audience])
+  /** 自分以外で地図に出ている人数。ボタンの文言に使う */
+  const othersOnMap = useMemo(() => pins.filter((p) => !p.is_me).length, [pins])
 
   const totalCount = useMemo(
     () => regions.reduce((sum, r) => sum + Number(r.post_count), 0),
@@ -426,7 +412,7 @@ export default function HomeMap() {
 
         {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
         {showPins &&
-          visiblePins.map((pin) => (
+          pins.map((pin) => (
             <Marker
               key={`pin-${pin.user_id}`}
               coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
@@ -569,33 +555,25 @@ export default function HomeMap() {
           styles.audienceBtn,
           shadow.float,
           {
-            backgroundColor: audience ? colors.text : colors.surface,
-            borderColor: audience ? colors.text : colors.border,
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
             bottom: insets.bottom + space.xl,
             opacity: pressed ? 0.85 : 1,
           },
         ]}
-        accessibilityLabel="誰の地図を見るかを選ぶ"
+        accessibilityLabel="誰の地図を出すかを選ぶ"
       >
-        <Ionicons
-          name="people-outline"
-          size={17}
-          color={audience ? colors.bg : colors.text}
-        />
-        <Txt
-          variant="smallMed"
-          style={{ color: audience ? colors.bg : colors.text, letterSpacing: 0.6 }}
-        >
-          {audience ? `${audience.length}人の地図` : '他の人の地図'}
+        <Ionicons name="people-outline" size={17} color={colors.text} />
+        <Txt variant="smallMed" style={{ letterSpacing: 0.6 }}>
+          {othersOnMap > 0 ? `${othersOnMap}人の地図` : '他の人の地図'}
         </Txt>
       </Pressable>
 
       <MapAudienceDrawer
         visible={drawerOpen}
         myId={user?.id ?? null}
-        selectedIds={audience}
         onClose={() => setDrawerOpen(false)}
-        onApply={setAudience}
+        onChanged={loadPins}
       />
 
       {/* ── 投稿プレビュー ─────────────────────────── */}
@@ -659,8 +637,11 @@ function FriendPin({ pin }: { pin: MapPin }) {
           size={44}
         />
         <View style={{ maxWidth: 108 }}>
+          {/* 自分のピンも他の人と同じくアカウント名で出す。
+              「じぶん」だけ表記が変わると、地図の上で
+              自分の投稿だけ別のものが立っているように見えた。 */}
           <Txt variant="smallMed" numberOfLines={1}>
-            {pin.is_me ? 'じぶん' : pin.display_name}
+            {pin.display_name}
           </Txt>
           <Txt variant="caption" tone="muted" numberOfLines={1}>
             {timeAgo(pin.posted_at)} · {pin.location_name}
