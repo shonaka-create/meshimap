@@ -49,6 +49,11 @@ Apple の返信にある *"provide up-to-date login credentials for a demo accou
 
 ## そのまま貼る英文
 
+> ⚠ **Resolution Center の返信欄と Notes 欄は 4000 文字までです。**
+> 下の全文（約6,600字）はそのままだと入りません。
+> 縮めた版を `app-review/review-reply-short-en.txt`（約3,900字）に置いてあるので、
+> **貼るのはそちら**。下の全文は元資料として残してあります。
+
 そのままコピーして使えます（端末は iPhone 17 / iOS 26.5.2 で記入済み）。
 審査担当は英語で書いてきているので、英語で返します。
 
