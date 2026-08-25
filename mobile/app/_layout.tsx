@@ -41,6 +41,11 @@ function RootNavigator() {
       <Stack
         screenOptions={{
           headerShadowVisible: false,
+          // 戻るボタンは矢印だけにする。
+          // iOS の native-stack は、指定が無いと「ひとつ前の画面の title」を
+          // 矢印の横に出す。タブ画面には title を持たせていないので、
+          // ルート名がそのまま出て「tabs」という文字が見えていた。
+          headerBackButtonDisplayMode: 'minimal',
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,
           headerTitleStyle: { fontSize: 17, fontWeight: '600' },

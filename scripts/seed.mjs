@@ -428,7 +428,7 @@ const POSTS_BY_USER = {
       area: '北新地',
       situations: ['仕事で', '記念日'],
       hashtags: ['日本料理', '北新地', '大阪', 'カウンター'],
-      images: ['https://images.unsplash.com/photo-1607301405345-41e34312ba64?w=800&q=90'],
+      images: ['https://images.unsplash.com/photo-1534482421-64566f976cfa?w=800&q=90'],
       daysAgo: 14,
     },
     {
@@ -658,7 +658,6 @@ const POSTS_BY_USER = {
       hashtags: ['寿司', '新宿', 'おまかせ', '江戸前寿司', '和食'],
       images: [
         'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800',
-        'https://images.unsplash.com/photo-1617196034183-421b4040ed20?w=800',
       ],
       daysAgo: 0.8,
     },
@@ -674,7 +673,7 @@ const POSTS_BY_USER = {
       area: '浅草',
       situations: ['ランチにおすすめ', '家族で'],
       hashtags: ['天ぷら', '浅草', '和食', 'ごま油', '老舗'],
-      images: ['https://images.unsplash.com/photo-1516901408873-81eed5ee17e5?w=800'],
+      images: ['https://images.unsplash.com/photo-1547592180-85f173990554?w=800'],
       daysAgo: 3,
     },
     {
