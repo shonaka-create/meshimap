@@ -49,17 +49,18 @@ Apple の返信にある *"provide up-to-date login credentials for a demo accou
 
 ## そのまま貼る英文
 
-以下をコピーして使います。**`<>` の箇所だけ埋めてください。**
+そのままコピーして使えます（端末は iPhone 17 / iOS 26.5.2 で記入済み）。
 審査担当は英語で書いてきているので、英語で返します。
+
+パスワードはこの文には入れていません。「サインイン情報」の欄に入っているので、
+同じものを2箇所に書かなくて済みます。
 
 ```text
 DEMO ACCOUNT (the app is account-based; nothing is visible without signing in)
 
-  Email:    teardoro+taro@gmail.com
-  Password: <.env.local の SEED_PASSWORD の値>
-
-There is only one type of account, so this single account is enough to reach every feature
-of the app.
+The credentials are in the Sign-In Information fields of this same App Review Information
+section (e-mail: teardoro+taro@gmail.com). There is only one type of account, so that
+single account is enough to reach every feature of the app.
 
 --------------------------------------------------------------------------------
 1. WHAT THE APP DOES, AND WHO IT IS FOR
@@ -84,8 +85,7 @@ keep a record of where they have been, and want to see where their friends have 
 --------------------------------------------------------------------------------
 2. DEVICES AND OPERATING SYSTEMS TESTED BEFORE SUBMISSION
 
-  - iPhone <モデル名>, iOS <バージョン>  (physical device, installed via TestFlight)
-  - <2台目があれば追記>
+  - iPhone 17, iOS 26.5.2  (physical device, installed via TestFlight)
 
 The app is built with Expo SDK 54 / React Native 0.81. Minimum supported iOS version is
 iOS 15.1. iPad is not supported (iPhone only).
