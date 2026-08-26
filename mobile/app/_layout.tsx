@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthProvider, useAuth } from '../src/hooks/useAuth'
 import { useTheme } from '../src/theme'
 import { AppLoading } from '../src/components/AppLoading'
+import { HeaderBack } from '../src/components/HeaderBack'
 
 function RootNavigator() {
   const { user, loading } = useAuth()
@@ -41,11 +42,23 @@ function RootNavigator() {
       <Stack
         screenOptions={{
           headerShadowVisible: false,
-          // 戻るボタンは矢印だけにする。
+          // 戻るボタンは自前のものに差し替える。
+          //
           // iOS の native-stack は、指定が無いと「ひとつ前の画面の title」を
           // 矢印の横に出す。タブ画面には title を持たせていないので、
           // ルート名がそのまま出て「tabs」という文字が見えていた。
+          // それを消す（'minimal'）と、今度は矢印の幅しか押せなくなり、
+          // ラベルが出ていたあたりを押しても反応しない状態になっていた。
+          //
+          // HeaderBack は 44x44 を確保する（Apple のヒットターゲットの下限）。
+          // 標準の矢印と二重に出ないよう headerBackVisible は false。
           headerBackButtonDisplayMode: 'minimal',
+          headerBackVisible: false,
+          headerLeft: () => <HeaderBack />,
+          // 端からのスワイプでも戻れること。ボタンが1つしか無い状態で
+          // そこが効かないと、その画面から出られなくなる。既定値だが、
+          // 戻る手段は2つとも明示して残しておく。
+          gestureEnabled: true,
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,
           headerTitleStyle: { fontSize: 17, fontWeight: '600' },

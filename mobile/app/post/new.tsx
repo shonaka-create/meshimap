@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker'
 import * as ImageManipulator from 'expo-image-manipulator'
 import MapView, { Marker } from 'react-native-maps'
 import { Ionicons } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
 import { useAuth } from '../../src/hooks/useAuth'
 import { useLocation } from '../../src/hooks/useLocation'
@@ -24,6 +24,7 @@ import {
   anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
 } from '../../src/lib/moderation'
 import { Button, Chip, Field, Txt } from '../../src/components/ui'
+import { HeaderClose } from '../../src/components/HeaderBack'
 
 /** 要件: 写真は5枚まで。動画は登録できない。 */
 const MAX_IMAGES = 5
@@ -259,6 +260,39 @@ export default function NewPost() {
     setSituations((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
 
   /** ピンの位置から内蔵データで決まるエリア名。API を使わずに即座に出せる。 */
+  /**
+   * 閉じる。
+   *
+   * 書きかけがあるときだけ確認する。何も入れていない人にまで
+   * 確認を出すと、閉じるのに2回押させることになる。
+   * アップロード中は閉じさせない（途中で消えた投稿が残る）。
+   */
+  const close = useCallback(() => {
+    if (uploading) return
+
+    const leave = () => {
+      if (router.canGoBack()) router.back()
+      else router.replace('/(tabs)')
+    }
+
+    const dirty =
+      images.length > 0 || !!caption.trim() || !!locationName.trim() || rating > 0
+
+    if (!dirty) {
+      leave()
+      return
+    }
+
+    Alert.alert(
+      '編集中の内容を破棄しますか？',
+      '写真や入力した内容は保存されません。',
+      [
+        { text: '編集を続ける', style: 'cancel' },
+        { text: '破棄する', style: 'destructive', onPress: leave },
+      ]
+    )
+  }, [uploading, images.length, caption, locationName, rating, router])
+
   const areaPreview = pin ? nearestArea(pin.latitude, pin.longitude) : null
 
   /** 同名のエリアが他県にもあるので、県名を添えて取り違えを防ぐ。 */
@@ -274,6 +308,13 @@ export default function NewPost() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {/* ★ モーダルには戻る矢印が出ない（iOS の仕様）。
+            下向きのスワイプで閉じる作りになっているが、この画面は縦に長く、
+            スクロールが先に効いてしまう。キーボードが出ていればなお閉じられない。
+            閉じる手段が画面に無い状態だったので、ヘッダーに置く。 */}
+      <Stack.Screen
+        options={{ headerLeft: () => <HeaderClose onPress={close} disabled={uploading} /> }}
+      />
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl, paddingBottom: space.xxxl }}>
 
         {/* ── 写真 ─────────────────────────────── */}
