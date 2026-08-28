@@ -20,7 +20,19 @@ function RootNavigator() {
 
     const inAuthGroup = segments[0] === '(auth)'
 
-    if (!user && !inAuthGroup) {
+    /**
+     * ★ ログイン前でも開ける画面を、ここに必ず含めること。
+     *
+     *   規約とプライバシーポリシーは「アカウントを作る前に読むもの」で、
+     *   新規登録画面から開く導線がある。それを '(auth)' かどうかだけで
+     *   判定していたため、規約を開いた瞬間に segments[0] が 'legal' になり、
+     *   未ログイン扱いでログイン画面へ引き戻していた。
+     *   入力中のフォームごと消えるので、規約を読もうとすると
+     *   登録がやり直しになる（App Review の Guideline 2.1 の指摘）。
+     */
+    const inPublicGroup = inAuthGroup || segments[0] === 'legal'
+
+    if (!user && !inPublicGroup) {
       router.replace('/(auth)/sign-in')
     } else if (user && inAuthGroup) {
       router.replace('/(tabs)')
