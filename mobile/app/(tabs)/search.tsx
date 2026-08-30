@@ -14,7 +14,7 @@ import { Chip, EmptyState, Field, Loading, Txt } from '../../src/components/ui'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
-import { formatImpressions, isFeatured } from '../../src/lib/impressions'
+import { formatImpressions } from '../../src/lib/impressions'
 import { pgContains } from '../../src/lib/filters'
 import { rankOf } from '../../src/lib/rank'
 
@@ -189,15 +189,6 @@ export default function Search() {
             )
           })()}
 
-          {/* いま見られている投稿。写真の上なので、地の色に関わらず
-              読めるよう暗い面に白抜きで置く。 */}
-          {isFeatured(item.featured_at) && (
-            <View style={styles.featured}>
-              <Ionicons name="flame" size={10} color="#fff" />
-              <Txt style={styles.featuredText}>注目</Txt>
-            </View>
-          )}
-
           {/* 表示回数。0 のときは出さない。
               「0」が並ぶと、見られていないことを強調するだけで
               誰の役にも立たない。 */}
@@ -293,22 +284,6 @@ export default function Search() {
           }
         />
       </View>
-
-      {/* 検索していないときだけ「注目のお店」への入口を出す。
-          探し物が決まっている人の邪魔をしない。 */}
-      {!isSearching && (
-        <Pressable
-          onPress={() => router.push('/featured')}
-          style={({ pressed }) => [
-            styles.featuredEntry,
-            { borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
-          ]}
-        >
-          <Ionicons name="flame" size={16} color={colors.accent} />
-          <Txt variant="smallMed" style={{ flex: 1 }}>いま注目のお店</Txt>
-          <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-        </Pressable>
-      )}
 
       {/* 検索中だけタブを出す。未検索時は発見グリッドのみ。 */}
       {isSearching && (

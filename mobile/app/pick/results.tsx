@@ -6,7 +6,6 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useTheme, space, radius, GENRE_EMOJI } from '../../src/theme'
 import { Button, EmptyState, Loading, Txt } from '../../src/components/ui'
 import { DemoNotice } from '../../src/components/DemoNotice'
-import { FeaturedStrip } from '../../src/components/FeaturedStrip'
 import { openDirections, openInMaps } from '../../src/lib/maps'
 import {
   fetchRecommendations, reasonsOf, formatDistance,
@@ -167,11 +166,9 @@ export default function PickResults() {
                 }
                 action={<Button title="条件を変える" onPress={() => router.back()} />}
               />
-              <FeaturedStrip note="条件に関わらず、いま見られている店です" />
             </View>
           )
         }
-        ListFooterComponent={spots.length > 0 ? <FeaturedStrip /> : null}
         renderItem={({ item }) => <SpotCard spot={item} />}
       />
     </>

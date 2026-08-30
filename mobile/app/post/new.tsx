@@ -20,14 +20,38 @@ import {
   type Genre, type PriceRange,
 } from '../../src/theme'
 import { nearestArea, PREFECTURE_BY_ID } from '../../src/lib/regions'
+import { searchPlaces, type PlaceHit } from '../../src/lib/placeSearch'
 import {
   anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
 } from '../../src/lib/moderation'
 import { Button, Chip, Field, Txt } from '../../src/components/ui'
 import { HeaderClose } from '../../src/components/HeaderBack'
 
-/** 要件: 写真は5枚まで。動画は登録できない。 */
+/**
+ * 要件: 写真は5枚まで。動画は登録できない。
+ *
+ * ★ supabase/migrations/0016_post_image_limit.sql と対。
+ *   向こうは post_images の position を 0〜4 に限り、
+ *   (post_id, position) を重複させないことで構造的に止めている。
+ *   片方だけ変えると、6枚目が選べるのに保存で弾かれる
+ *   （またはその逆）という食い違いになる。
+ */
 const MAX_IMAGES = 5
+
+/**
+ * DB の枚数制限に弾かれたエラーか（移行 0016）。
+ *
+ * PostgREST は制約名をそのままメッセージに載せてくるので、
+ * それを見て日本語に直す（lib/moderation.ts の
+ * isProhibitedContentError と同じやり方）。
+ */
+function isImageLimitError(e: unknown): boolean {
+  const msg = (e as { message?: string })?.message ?? ''
+  return (
+    msg.includes('post_images_position_range') ||
+    msg.includes('post_images_post_position_key')
+  )
+}
 
 /**
  * 「地図で調整」を開いたときの表示範囲（緯度の度数）。
@@ -97,6 +121,29 @@ export default function NewPost() {
    */
   const [showMap, setShowMap] = useState(false)
 
+  /**
+   * 場所の検索。
+   *
+   * それまでは「現在地」か「地図をタップ」しか無かった。家に帰ってから
+   * 昼の店を投稿する人にとっては、地図を指でたぐって探すしかない状態だった。
+   *
+   * ★ 費用の出ない経路だけを使う（lib/placeSearch.ts）。
+   *   内蔵のエリアデータと、端末の地理コーダ。Places API は使わない。
+   */
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [placeResults, setPlaceResults] = useState<PlaceHit[]>([])
+  const [placeSearching, setPlaceSearching] = useState(false)
+  const [placeSearched, setPlaceSearched] = useState(false)
+
+  /**
+   * 地図が動かせる状態か。
+   * iOS の animateToRegion は、地図が組み上がる前に呼んでも
+   * 黙って捨てられる。検索結果を押した直後がちょうどその窓に当たる。
+   */
+  const mapReady = useRef(false)
+  /** 地図が準備できる前に決まった行き先。準備できた瞬間に動かす */
+  const pendingRegion = useRef<{ latitude: number; longitude: number } | null>(null)
+
   /* ── 初期位置は現在地に寄せる ────────────────────── */
   useEffect(() => {
     locate().then((c) => {
@@ -149,6 +196,71 @@ export default function NewPost() {
 
   const removeImage = (uri: string) =>
     setImages((prev) => prev.filter((i) => i.uri !== uri))
+
+  /* ── 場所を言葉で探す ───────────────────────────
+   * 打つたびに走らせず、確定したときだけ走らせる。
+   * 端末の地理コーダは1文字ごとに叩くようにはできていない。
+   */
+  const runPlaceSearch = useCallback(async () => {
+    const q = placeQuery.trim()
+    if (q.length < 2) return
+
+    setPlaceSearching(true)
+    try {
+      setPlaceResults(await searchPlaces(q))
+      setPlaceSearched(true)
+    } finally {
+      setPlaceSearching(false)
+    }
+  }, [placeQuery])
+
+  /** 検索結果を選ぶ。ピンを置いて、そのまま地図で確かめられるようにする */
+  const choosePlace = useCallback((hit: PlaceHit) => {
+    const next = { latitude: hit.latitude, longitude: hit.longitude }
+    setPin(next)
+    setPlaceResults([])
+    setPlaceSearched(false)
+    setPlaceQuery('')
+
+    // ★ 検索で寄せた場所は、店そのものではなく「その街」であることが多い。
+    //   置きっぱなしにさせず、必ず地図を開いて微調整させる。
+    if (!showMap) {
+      // まだ開いていない。マウント時の initialRegion がこのピンを使う
+      setShowMap(true)
+      return
+    }
+
+    if (mapReady.current) {
+      mapRef.current?.animateToRegion(
+        { ...next, latitudeDelta: ADJUST_DELTA, longitudeDelta: ADJUST_DELTA },
+        500
+      )
+      return
+    }
+
+    // ★ 開いてはいるが、まだ組み上がっていない。
+    //   この状態で animateToRegion を呼んでも iOS では黙って捨てられ、
+    //   ピンだけ動いて地図が前の場所に取り残される。
+    //   行き先を持っておいて、onMapReady で動かす。
+    pendingRegion.current = next
+  }, [showMap])
+
+  /** 地図が組み上がった。保留していた行き先があれば動かす */
+  const onMapReady = useCallback(() => {
+    mapReady.current = true
+
+    const pending = pendingRegion.current
+    pendingRegion.current = null
+    if (!pending) return
+
+    // 最初の描画が終わる前に動かすと取りこぼすので、1フレーム待つ
+    requestAnimationFrame(() => {
+      mapRef.current?.animateToRegion(
+        { ...pending, latitudeDelta: ADJUST_DELTA, longitudeDelta: ADJUST_DELTA },
+        500
+      )
+    })
+  }, [])
 
   /* ── 投稿 ───────────────────────────────────── */
   const submit = useCallback(async () => {
@@ -277,6 +389,10 @@ export default function NewPost() {
       // 端末側で弾いたときと同じ文言を出す。
       if (isProhibitedContentError(e)) {
         Alert.alert('投稿できません', PROHIBITED_CONTENT_MESSAGE)
+      } else if (isImageLimitError(e)) {
+        // 端末側の上限をすり抜けてここに来ることは普通は無い。
+        // 制約名がそのまま出ると何のことか分からないので、日本語にする。
+        Alert.alert('投稿できません', `写真は${MAX_IMAGES}枚までです。`)
       } else {
         Alert.alert('投稿に失敗しました', (e as Error)?.message ?? '不明なエラー')
       }
@@ -486,6 +602,74 @@ export default function NewPost() {
             {showMap && <Txt variant="small" tone="faint">地図をタップしてピンを置く</Txt>}
           </View>
 
+          {/* ── 言葉で探す ─────────────────────────
+            * 駅名・地名・住所で寄せられる。店名では引けないことが
+            * あるので、そのときは近くの駅名で寄せてから地図で詰める。
+            * 内蔵データと端末の地理コーダだけを使うので費用は出ない。 */}
+          <View style={{ gap: space.sm }}>
+            <Field
+              value={placeQuery}
+              onChangeText={(v) => {
+                setPlaceQuery(v)
+                if (!v.trim()) { setPlaceResults([]); setPlaceSearched(false) }
+              }}
+              placeholder="駅名・地名・住所で探す（例: 清澄白河）"
+              returnKeyType="search"
+              onSubmitEditing={runPlaceSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              right={
+                placeSearching
+                  ? <ActivityIndicator size="small" color={colors.textFaint} />
+                  : placeQuery.trim().length >= 2
+                    ? (
+                        <Pressable onPress={runPlaceSearch} hitSlop={8} accessibilityLabel="この言葉で探す">
+                          <Ionicons name="search" size={18} color={colors.accent} />
+                        </Pressable>
+                      )
+                    : undefined
+              }
+            />
+
+            {placeResults.length > 0 && (
+              <View style={[styles.results, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                {placeResults.map((hit, i) => (
+                  <Pressable
+                    key={`${hit.source}-${hit.name}-${hit.latitude}-${hit.longitude}`}
+                    onPress={() => choosePlace(hit)}
+                    style={({ pressed }) => [
+                      styles.resultRow,
+                      {
+                        // 先頭行は囲みの線と重なるので引かない
+                        borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                        borderTopColor: colors.border,
+                        opacity: pressed ? 0.6 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={hit.source === 'local' ? 'navigate-circle-outline' : 'location-outline'}
+                      size={18}
+                      color={colors.geo}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Txt variant="bodyMed" numberOfLines={1}>{hit.name}</Txt>
+                      {!!hit.detail && (
+                        <Txt variant="small" tone="faint" numberOfLines={1}>{hit.detail}</Txt>
+                      )}
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {placeSearched && placeResults.length === 0 && !placeSearching && (
+              <Txt variant="small" tone="muted">
+                見つかりませんでした。お店の名前ではなく、最寄り駅や地名で試してみてください。
+              </Txt>
+            )}
+          </View>
+
           {/* 現在地でよければ地図を開かせない。
               Google Maps は地図の読み込み1回ごとに課金されるため、
               「調整する人だけが地図を開く」導線にしている。 */}
@@ -538,6 +722,7 @@ export default function NewPost() {
                 }}
                 showsUserLocation
                 showsMyLocationButton={false}
+                onMapReady={onMapReady}
                 onPress={(e) => setPin(e.nativeEvent.coordinate)}
               >
                 {pin && <Marker coordinate={pin} pinColor={colors.accent} />}
@@ -620,6 +805,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   mapBox: { height: 220, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1 },
+  results: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
+  resultRow: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md,
+    paddingHorizontal: space.md, paddingVertical: space.md,
+  },
   locationCard: {
     flexDirection: 'row', alignItems: 'center', gap: space.md,
     padding: space.md, borderRadius: radius.md, borderWidth: 1,

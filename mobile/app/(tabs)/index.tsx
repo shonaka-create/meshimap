@@ -56,6 +56,37 @@ const LEVEL_LABEL: Record<RegionLevel, string> = {
 const BACK_TO_AREAS_DELTA = 0.35   // 投稿ピン表示 → エリア一覧
 const BACK_TO_PREFS_DELTA = 3.0    // エリア一覧   → 都道府県一覧
 
+/**
+ * 寄ったときに1階層下へ降ろすしきい値（latitudeDelta）。
+ *
+ * バブルを押さなくても、指で拡大するだけで降りられるようにする。
+ * 「地図なんだから寄れば詳しくなる」という当たり前の期待に合わせる。
+ *
+ * ★ 戻るしきい値より内側に置くこと。
+ *   同じ値だと、降りた直後に戻る条件も満たしてしまい、
+ *   階層が行ったり来たりする。
+ *   戻り: エリア→県 が 3.0、投稿→エリア が 0.35
+ *   降り: 県→エリア が 1.2、エリア→投稿 が 0.10
+ *
+ * ★ 地図の読み込みは増えない。
+ *   Google Maps SDK の課金は「地図を読み込んだ回数」で、
+ *   拡大・縮小・移動は何回やっても無料。ここでやっているのは
+ *   出すピンを差し替えることと、DBの集計を取り直すことだけ。
+ */
+const INTO_AREAS_DELTA = 1.2    // 都道府県一覧 → エリア一覧
+const INTO_POSTS_DELTA = 0.10   // エリア一覧   → 投稿ピン表示
+
+/** 2点間のおおよその距離。どのバブルの上に居るかを決めるためだけに使う */
+function roughDistance(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): number {
+  const dLat = a.lat - b.lat
+  // 緯度が上がるほど経度1度は短くなる。日本の緯度帯では無視できない
+  const dLng = (a.lng - b.lng) * Math.cos((a.lat * Math.PI) / 180)
+  return dLat * dLat + dLng * dLng
+}
+
 export default function HomeMap() {
   const { colors, isDark } = useTheme()
   const router = useRouter()
@@ -205,9 +236,16 @@ export default function HomeMap() {
 
     const load = async () => {
       setLoadingRegions(true)
+      // ★ 前の結果を残さないこと。
+      //   ジャンルを変えた直後は、取り直すまで前のジャンルのバブルが
+      //   残る。その状態でピンチすると、いま出ていないエリアへ
+      //   降りてしまう（降り先は regionsRef から選ぶため）。
+      setRegions([])
+      // 絞り込みは地図の読み込みとは無関係（DBの集計なので課金されない）
       const { data, error } = await supabase.rpc('post_counts_by_region', {
         p_level: drill.level,
         p_prefecture: drill.level === 'area' ? drill.prefecture : null,
+        p_genre: genre === 'すべて' ? null : genre,
       })
       if (cancelled) return
 
@@ -222,7 +260,7 @@ export default function HomeMap() {
 
     load()
     return () => { cancelled = true }
-  }, [drill])
+  }, [drill, genre])
 
   /* ── 自分とフォロー中の人のアイコンを取得 ─────────────
    * 現在地ではなく「最後に投稿したお店」の座標。
@@ -243,6 +281,13 @@ export default function HomeMap() {
   /* ── エリアを選んだら、その中の投稿を取得 ───────────── */
   const loadPostsForArea = useCallback(
     async (prefecture: string, area: string) => {
+      // ★ 先に階層を切り替えること。
+      //   openArea を取得のあとに立てていたので、投稿が返ってくるまでの
+      //   あいだ地域バブル（数字）が最下層に残り続けていた。
+      //   「いちばん下まで降りたのに番号のバブルが出る」の原因はこれ。
+      setOpenArea(area)
+      setPosts([])
+
       // area が NULL の投稿は RPC 側で city を代わりに使っているので、
       // 取得側も同じ条件（area = X または area が空で city = X）で拾う。
       const q = supabase
@@ -256,11 +301,14 @@ export default function HomeMap() {
         .limit(200)
 
       if (error) {
+        // ★ 先に降ろした階層を戻すこと。
+        //   openArea を立てたまま失敗すると、投稿が1件も無い
+        //   エリアに取り残され、引かないと出られなくなる。
         console.warn('[home] 投稿取得に失敗', error.message)
+        setOpenArea(null)
         return
       }
       setPosts((data ?? []).map(toPost))
-      setOpenArea(area)
     },
     []
   )
@@ -351,9 +399,37 @@ export default function HomeMap() {
 
       if (drill.level === 'area' && d > BACK_TO_PREFS_DELTA) {
         setDrill({ level: 'prefecture' })
+        return
+      }
+
+      /* ── 寄ったら降りる ─────────────────────────
+       * バブルを押さなくても、指で拡大するだけで階層が進む。
+       *
+       * どこへ降りるかは「画面の中心にいちばん近いバブル」で決める。
+       * 寄っている以上、その1つが画面の主役になっているはず。
+       * バブルが1つも無ければ降りない（降りた先が空になる）。
+       */
+      if (regionsRef.current.length === 0) return
+
+      const center = { lat: region.latitude, lng: region.longitude }
+      let nearest = regionsRef.current[0]
+      let best = roughDistance(center, { lat: nearest.center_lat, lng: nearest.center_lng })
+
+      for (const r of regionsRef.current) {
+        const dist = roughDistance(center, { lat: r.center_lat, lng: r.center_lng })
+        if (dist < best) { best = dist; nearest = r }
+      }
+
+      if (drill.level === 'prefecture' && d < INTO_AREAS_DELTA) {
+        setDrill({ level: 'area', prefecture: nearest.name })
+        return
+      }
+
+      if (drill.level === 'area' && d < INTO_POSTS_DELTA) {
+        loadPostsForArea(drill.prefecture, nearest.name)
       }
     },
-    [openArea, drill]
+    [openArea, drill, loadPostsForArea]
   )
 
   /* ── パンくずで上の階層へ戻る ───────────────────── */
@@ -413,6 +489,16 @@ export default function HomeMap() {
     [posts, genre]
   )
 
+  /**
+   * いま出ているバブル。
+   *
+   * onRegionChangeComplete から読む。依存配列に regions を入れると、
+   * バブルが差し替わるたびに関数が作り直されて MapView に渡る prop が
+   * 変わり、地図が余計に描き直される。読むだけなので ref で持つ。
+   */
+  const regionsRef = useRef<RegionCount[]>([])
+  useEffect(() => { regionsRef.current = regions }, [regions])
+
   /** 自分以外で地図に出ている人数。ボタンの文言に使う */
   const othersOnMap = useMemo(() => pins.filter((p) => !p.is_me).length, [pins])
 
@@ -442,47 +528,46 @@ export default function HomeMap() {
       >
         {showRegionBubbles &&
           regions.map((r) => (
-            <Marker
-              key={`${drill.level}-${r.name}`}
+            <TrackedMarker
+              key={`${drill.level}-${genre}-${r.name}`}
               coordinate={{ latitude: r.center_lat, longitude: r.center_lng }}
               onPress={() => { markMarkerPress(); onRegionPress(r) }}
-              tracksViewChanges={false}
               anchor={{ x: 0.5, y: 0.5 }}
             >
               <RegionBubble name={r.name} count={Number(r.post_count)} />
-            </Marker>
+            </TrackedMarker>
           ))}
 
         {!showRegionBubbles &&
           visiblePosts.map((p) => (
-            <Marker
-              key={p.id}
+            <TrackedMarker
+              // 選択で見た目が変わるので、変わったら絵を取り直させる
+              key={`${p.id}-${selectedPost?.id === p.id ? 'on' : 'off'}`}
               coordinate={{ latitude: p.location_lat, longitude: p.location_lng }}
               onPress={() => { markMarkerPress(); setSelectedPost(p) }}
-              tracksViewChanges={false}
               anchor={{ x: 0.5, y: 1 }}
             >
               <PostPin genre={p.genre} selected={selectedPost?.id === p.id} />
-            </Marker>
+            </TrackedMarker>
           ))}
 
         {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
         {showPins &&
           pins.map((pin) => (
-            <Marker
-              key={`pin-${pin.user_id}`}
+            <TrackedMarker
+              // 写真が入れ替わったら絵を取り直させる
+              key={`pin-${pin.user_id}-${pin.photo_url ?? pin.avatar_emoji ?? ''}`}
               coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
               onPress={() => {
                 markMarkerPress()
                 if (pin.is_me) router.push('/(tabs)/profile')
                 else router.push(`/user/${pin.username}`)
               }}
-              tracksViewChanges={false}
               anchor={{ x: 0.5, y: 1 }}
               zIndex={10}
             >
               <FriendPin pin={pin} />
-            </Marker>
+            </TrackedMarker>
           ))}
       </MapView>
 
@@ -529,27 +614,30 @@ export default function HomeMap() {
           </View>
         </View>
 
-        {/* 投稿ピン表示中のみ絞り込みを出す。
-            地図の上に置くチップは onMap を立てて面を不透明にする。
-            透明のままだと下の地形が透けて文字が読めない。 */}
-        {openArea && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.genreRow}
-          >
-            <Chip label="すべて" onMap selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
-            {GENRES.map((g) => (
-              <Chip
-                key={g}
-                onMap
-                label={`${GENRE_EMOJI[g]} ${g}`}
-                selected={genre === g}
-                onPress={() => setGenre(g)}
-              />
-            ))}
-          </ScrollView>
-        )}
+        {/* ── ジャンルの絞り込み ─────────────────────
+          * どの階層でも出す。以前はいちばん下（投稿ピン）でしか
+          * 出していなかったので、「この県のラーメンはどこに多いか」を
+          * 見るには、いったんどこかのエリアまで降りるしかなかった。
+          * 上の階層ではバブルの数字が、下では出るピンが絞られる。
+          *
+          * 地図の上に置くチップは onMap を立てて面を不透明にする。
+          * 透明のままだと下の地形が透けて文字が読めない。 */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.genreRow}
+        >
+          <Chip label="すべて" onMap selected={genre === 'すべて'} onPress={() => setGenre('すべて')} />
+          {GENRES.map((g) => (
+            <Chip
+              key={g}
+              onMap
+              label={`${GENRE_EMOJI[g]} ${g}`}
+              selected={genre === g}
+              onPress={() => setGenre(g)}
+            />
+          ))}
+        </ScrollView>
       </View>
 
       {/* ── 右下: アイコンの表示切り替え ─────────────────
@@ -652,6 +740,38 @@ export default function HomeMap() {
 }
 
 /* ─────────────────────────  部品  ───────────────────────── */
+
+/**
+ * 地図に置く自前のマーカー。
+ *
+ * ★ tracksViewChanges を最初から false にしないこと。
+ *
+ *   false は「一度だけ絵を取って、あとは更新しない」という指定で、
+ *   ピンが増えたときに地図が固まらないために要る。
+ *   ただし絵を取るのは指定した瞬間なので、中身（絵文字や文字）の
+ *   描画が間に合っていないと**空白のまま焼き付く**。
+ *   「アイコンが出ないことがある」「別のものが出る」の正体はこれ。
+ *
+ *   最初だけ true にして、中身が描けたころに false へ落とす。
+ *   これで正しい絵を取ったうえで、以後の負荷も抑えられる。
+ */
+function TrackedMarker({
+  children, ...markerProps
+}: React.ComponentProps<typeof Marker>) {
+  const [tracking, setTracking] = useState(true)
+
+  useEffect(() => {
+    // 1フレームでは間に合わないことがあるので、少し置いてから止める
+    const t = setTimeout(() => setTracking(false), 600)
+    return () => clearTimeout(t)
+  }, [])
+
+  return (
+    <Marker {...markerProps} tracksViewChanges={tracking}>
+      {children}
+    </Marker>
+  )
+}
 
 function Crumb({
   label, active, onPress,

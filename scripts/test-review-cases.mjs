@@ -720,17 +720,44 @@ check('L-1', '公開切替: 一括承認の失敗を伝える', () => {
     'pending の一括承認の戻り値を検査していない')
 })
 
-check('M-1', 'アイコン変更: 前の画像を残さない', () => {
+check('M-1', 'アイコン変更: 前の画像を残さない（編集画面）', () => {
   const src = read('mobile/app/settings/edit-profile.tsx')
-  assert(/removeAvatar\(/.test(src),
+  assert(/deleteAvatarByUrl\(/.test(src),
     'アイコンを変えても前の画像を消していない（public バケットに残る）')
 
   // 保存が通る前に消すと、失敗したときにアイコンだけ消える
   const save = src.slice(src.indexOf('const save ='))
   const updateAt = save.indexOf(".from('profiles').update(")
-  const removeAt = save.indexOf('removeAvatar(')
+  const removeAt = save.indexOf('deleteAvatarByUrl(')
   assert(updateAt >= 0 && removeAt > updateAt,
     '保存が通る前に前のアイコンを消している')
+})
+
+check('M-2', 'アイコン変更: プロフィールから変えても前の画像を残さない', () => {
+  // アイコンを押して直接変えられる経路を足したので、そちらも同じ順序で消すこと
+  const src = read('mobile/src/components/ProfileView.tsx')
+  assert(/deleteAvatarByUrl\(/.test(src),
+    'プロフィールから変えたときに前の画像を消していない')
+
+  const fn = src.slice(src.indexOf('const replacePhoto ='))
+  const body = fn.slice(0, fn.indexOf('\n  }, ['))
+  const updateAt = body.indexOf(".from('profiles').update(")
+  const removeAt = body.indexOf('deleteAvatarByUrl(')
+  assert(updateAt >= 0 && removeAt > updateAt,
+    '保存が通る前に前のアイコンを消している')
+})
+
+check('M-3', 'アイコン変更: 選ぶ・上げる・消すの実装が1つにまとまっている', () => {
+  // 2画面から同じことをするので、分かれていると片方だけ直る
+  const lib = read('mobile/src/lib/avatar.ts')
+  for (const fn of ['pickAvatarImage', 'uploadAvatar', 'deleteAvatarByUrl']) {
+    assert(new RegExp(`export (async )?function ${fn}`).test(lib),
+      `avatar.ts に ${fn} が無い`)
+  }
+  for (const rel of ['mobile/app/settings/edit-profile.tsx', 'mobile/src/components/ProfileView.tsx']) {
+    assert(/from '.*lib\/avatar'/.test(read(rel)),
+      `${rel} が avatar.ts を使っていない（実装が二重になっている）`)
+  }
 })
 
 /* ══════════════════════════════════════════════════════════ */

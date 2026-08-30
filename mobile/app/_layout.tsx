@@ -5,12 +5,16 @@ import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthProvider, useAuth } from '../src/hooks/useAuth'
+import { ThemeSettingProvider, useThemeSetting } from '../src/hooks/useThemeSetting'
 import { useTheme } from '../src/theme'
 import { AppLoading } from '../src/components/AppLoading'
 import { HeaderBack } from '../src/components/HeaderBack'
 
 function RootNavigator() {
   const { user, loading } = useAuth()
+  // 保存した見た目の設定を読み終える前に描くと、選んだ配色と違う色が
+  // 一瞬出てから切り替わる。読み終えるまでは読み込み画面のままにする。
+  const { ready: themeReady } = useThemeSetting()
   const { colors, isDark } = useTheme()
   const segments = useSegments()
   const router = useRouter()
@@ -39,7 +43,7 @@ function RootNavigator() {
     }
   }, [user, loading, segments, router])
 
-  if (loading) {
+  if (loading || !themeReady) {
     return (
       <>
         <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -86,8 +90,9 @@ function RootNavigator() {
         <Stack.Screen name="post/[id]" options={{ title: '' }} />
         <Stack.Screen name="pick/results" options={{ title: 'おすすめ' }} />
         <Stack.Screen name="ranking" options={{ title: '今月のランキング' }} />
-        <Stack.Screen name="featured" options={{ title: '注目のお店' }} />
         <Stack.Screen name="user/[username]" options={{ title: '' }} />
+        {/* 画面側で「◯◯ のフォロワー」に差し替える */}
+        <Stack.Screen name="follows" options={{ title: 'フォロー' }} />
         <Stack.Screen name="settings/index" options={{ title: '設定' }} />
         <Stack.Screen name="settings/edit-profile" options={{ title: 'プロフィールを編集' }} />
         <Stack.Screen name="settings/blocked" options={{ title: 'ブロックしたアカウント' }} />
@@ -103,9 +108,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
+        {/* 見た目の設定は、ログインしていなくても効く必要がある
+            （ログイン画面もこの配色で描く）。Auth より外に置く。 */}
+        <ThemeSettingProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </ThemeSettingProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

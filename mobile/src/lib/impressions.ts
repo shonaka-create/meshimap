@@ -1,19 +1,13 @@
 import { supabase } from './supabase'
 
 /**
- * インプレッション（表示回数）と、そこから決まる「注目」「月間ランク」。
+ * インプレッション（表示回数）と、そこから決まる「月間ランク」。
  *
  * ★ しきい値は supabase/migrations/0008_impressions_featured_monthly.sql と
  *   同じ値。片方だけ変えないこと。
  *   数える・判定するのはDB、見せるのはここ、と役割を分けている
  *   （端末側の値を書き換えても、DBに入る数字は変わらない）。
  */
-
-/** 注目に必要な、直近の閲覧人数 */
-export const FEATURED_THRESHOLD = 20
-
-/** 注目の集計期間 兼 表示期間（日） */
-export const FEATURED_WINDOW_DAYS = 7
 
 /**
  * 月間ランクの段位。
@@ -63,19 +57,6 @@ export interface MonthlyStanding {
   rank_position: number | null
   /** その月に1件以上届いた人の数 */
   entrants: number
-}
-
-/**
- * 「注目」かどうか。
- *
- * featured_at は、直近 FEATURED_WINDOW_DAYS 日の閲覧人数がしきい値に
- * 達している間だけDBが更新し続ける。閲覧が止まれば更新も止まるので、
- * 期間が過ぎたものは自然に外れる（掃除の仕組みが要らない）。
- */
-export function isFeatured(featuredAt: string | null | undefined): boolean {
-  if (!featuredAt) return false
-  const ms = Date.now() - new Date(featuredAt).getTime()
-  return ms >= 0 && ms < FEATURED_WINDOW_DAYS * 86_400_000
 }
 
 /**

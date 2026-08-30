@@ -5,12 +5,14 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../src/lib/supabase'
 import { PHOTO_CLEANUP_FAILED, useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius } from '../../src/theme'
+import { THEME_SETTINGS, useThemeSetting } from '../../src/hooks/useThemeSetting'
 import { Txt } from '../../src/components/ui'
 
 export default function Settings() {
   const { user, profile, signOut, deleteAccount, refreshProfile } = useAuth()
   const { colors } = useTheme()
   const router = useRouter()
+  const { setting: themeSetting, setSetting: setThemeSetting } = useThemeSetting()
   const [savingPublic, setSavingPublic] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
@@ -128,6 +130,26 @@ export default function Settings() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: space.lg, gap: space.xl }}>
 
+      {/* ── 画面の見た目 ─────────────────────────
+        * 端末の設定に従うのが既定。ただし「アプリ全体は明るいままで、
+        * このアプリだけ暗くしたい」（逆も）という要望は普通にあるので、
+        * ここで上書きできるようにしてある。
+        * 設定はこの端末にだけ保存され、アカウントには紐づかない。
+        */}
+      <Section title="画面の見た目">
+        <View style={{ gap: space.sm }}>
+          {THEME_SETTINGS.map((t) => (
+            <ThemeChoice
+              key={t.value}
+              label={t.label}
+              note={t.note}
+              selected={themeSetting === t.value}
+              onPress={() => setThemeSetting(t.value)}
+            />
+          ))}
+        </View>
+      </Section>
+
       {/* ── プライバシー ─────────────────────────── */}
       <Section title="プライバシー">
         <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -197,6 +219,45 @@ export default function Settings() {
         MeshiMap v1.0.0
       </Txt>
     </ScrollView>
+  )
+}
+
+/**
+ * 見た目の選択肢1つぶん。
+ *
+ * 押した結果がその場で画面全体に出るので、選択の印は
+ * 控えめでよい（色が変われば選べたことは分かる）。
+ */
+function ThemeChoice({
+  label, note, selected, onPress,
+}: { label: string; note: string; selected: boolean; onPress: () => void }) {
+  const { colors } = useTheme()
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          backgroundColor: selected ? colors.accentSoft : colors.surface,
+          borderColor: selected ? colors.accent : colors.border,
+          opacity: pressed ? 0.7 : 1,
+        },
+      ]}
+    >
+      <Ionicons
+        name={selected ? 'radio-button-on' : 'radio-button-off'}
+        size={20}
+        color={selected ? colors.accent : colors.textFaint}
+      />
+      <View style={{ flex: 1 }}>
+        <Txt variant="body">{label}</Txt>
+        <Txt variant="small" tone="faint">{note}</Txt>
+      </View>
+    </Pressable>
   )
 }
 

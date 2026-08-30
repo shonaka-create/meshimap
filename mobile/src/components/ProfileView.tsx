@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import {
-  Alert, FlatList, Pressable, RefreshControl, StyleSheet, View, useWindowDimensions,
+  ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, View,
+  useWindowDimensions,
 } from 'react-native'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
@@ -14,15 +15,14 @@ import { RankAvatar, RankBadge } from './RankAvatar'
 import { AvatarEmojiPicker } from './AvatarEmojiPicker'
 import { rankOf } from '../lib/rank'
 import { RankLadder } from './RankLadder'
-import {
-  formatImpressions, isFeatured, monthlyTierOf, nextMonthlyTier,
-  type MonthlyStanding,
-} from '../lib/impressions'
 import { BILLING_READY } from '../lib/billing'
 import { DemoNotice } from './DemoNotice'
 import { FREE_MAP_LIMIT, isFollowLimitError } from '../lib/limits'
 import type { FollowStatus, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
+import {
+  deleteAvatarByUrl, isPhotoPermissionError, pickAvatarImage, uploadAvatar,
+} from '../lib/avatar'
 
 interface Props {
   /** username で引く（他人のページ）か、自分のIDで引くか */
@@ -47,8 +47,8 @@ export function ProfileView({ username, selfId }: Props) {
   /** 取得そのものが失敗した。「見つからない」とは別に持つ */
   const [loadError, setLoadError] = useState(false)
   const [pickingEmoji, setPickingEmoji] = useState(false)
-  /** 今月の成績。月初にゼロへ戻るので、通算のランクとは別に持つ */
-  const [standing, setStanding] = useState<MonthlyStanding | null>(null)
+  /** アイコン写真の入れ替え中。押しっぱなしにさせないために持つ */
+  const [savingPhoto, setSavingPhoto] = useState(false)
 
   const isOwn = !!selfId || (!!profile && profile.id === user?.id)
   const cell = (width - 4) / 3
@@ -96,13 +96,6 @@ export function ProfileView({ username, selfId }: Props) {
         .maybeSingle()
       setFollowStatus((f?.status as FollowStatus) ?? null)
     }
-
-    // 今月の成績。順位を出すのに他人の集計を読むので RPC 側で閉じている。
-    // 移行 0008 を流す前は関数が無いので、失敗しても黙って畳む。
-    const { data: st, error: stErr } = await supabase
-      .rpc('monthly_standing', { p_user: prof.id })
-      .maybeSingle()
-    setStanding(stErr ? null : ((st as MonthlyStanding | null) ?? null))
 
     // 投稿。非公開アカウントかつ未フォローなら RLS で 0 件になる。
     const { data: rows } = await supabase
@@ -210,6 +203,17 @@ export function ProfileView({ username, selfId }: Props) {
     }
   }, [])
 
+  /* ── フォロー / フォロワーの一覧を開く ───────────────
+   * 数字は長らく飾りで、そこから相手へ行く道が無かった。
+   */
+  const openFollows = useCallback((tab: 'followers' | 'following') => {
+    if (!profile) return
+    router.push({
+      pathname: '/follows',
+      params: { userId: profile.id, displayName: profile.display_name, tab },
+    })
+  }, [profile, router])
+
   /* ── ブロック（App Store Guideline 1.2 必須） ───────── */
   const blockUser = useCallback(() => {
     if (!user || !profile) return
@@ -283,8 +287,97 @@ export function ProfileView({ username, selfId }: Props) {
 
   const rank = rankOf(profile.posts_count, profile.areas_count)
 
-  const monthlyTier = monthlyTierOf(standing?.impressions ?? 0)
-  const monthlyNext = nextMonthlyTier(monthlyTier)
+  /** 写真を選び直す。保存が通ってから前の画像を消す */
+  const replacePhoto = useCallback(async () => {
+    if (!user || savingPhoto) return
+
+    let uri: string | null = null
+    try {
+      uri = await pickAvatarImage()
+    } catch (e) {
+      if (isPhotoPermissionError(e)) {
+        Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
+        return
+      }
+      Alert.alert('写真を選べませんでした', (e as Error).message)
+      return
+    }
+    if (!uri) return
+
+    setSavingPhoto(true)
+    const previous = profile?.photo_url ?? null
+
+    let uploaded: string | null = null
+    try {
+      uploaded = await uploadAvatar(user.id, uri)
+
+      const { error } = await supabase
+        .from('profiles').update({ photo_url: uploaded }).eq('id', user.id)
+      if (error) throw error
+
+      setProfile((p) => (p ? { ...p, photo_url: uploaded } : p))
+      await refreshProfile()
+
+      // ★ 保存が通ってから消すこと。先に消すと、
+      //   保存に失敗したときにアイコンだけ無くなる。
+      if (previous && previous !== uploaded) await deleteAvatarByUrl(user.id, previous)
+      uploaded = null
+    } catch (e) {
+      // ★ 上げたのに使わなかった画像は片付ける。
+      //   置いたままにすると、public バケットに誰からも参照されない
+      //   写真が溜まっていく（退会時の後片付けからも漏れやすい）。
+      if (uploaded) await deleteAvatarByUrl(user.id, uploaded)
+      Alert.alert('アイコンを変更できませんでした', (e as Error).message)
+    } finally {
+      setSavingPhoto(false)
+    }
+  }, [user, savingPhoto, profile?.photo_url, refreshProfile])
+
+  /** 写真を外す。絵柄と頭文字での表示に戻る */
+  const removePhoto = useCallback(async () => {
+    if (!user || savingPhoto) return
+    const previous = profile?.photo_url ?? null
+
+    setSavingPhoto(true)
+    try {
+      const { error } = await supabase
+        .from('profiles').update({ photo_url: null }).eq('id', user.id)
+      if (error) throw error
+
+      setProfile((p) => (p ? { ...p, photo_url: null } : p))
+      await refreshProfile()
+      if (previous) await deleteAvatarByUrl(user.id, previous)
+    } catch (e) {
+      Alert.alert('写真を外せませんでした', (e as Error).message)
+    } finally {
+      setSavingPhoto(false)
+    }
+  }, [user, savingPhoto, profile?.photo_url, refreshProfile])
+
+  /**
+   * アイコンを押したときの選択肢。
+   *
+   * これまでは絵柄の選択だけが開き、写真を変えるには
+   * 設定 → プロフィールを編集 → 写真を変更、と3階層潜る必要があった。
+   * アイコンを押したら、そこで写真も絵柄も変えられるのが素直。
+   */
+  const chooseAvatarAction = useCallback(() => {
+    if (!user) return
+
+    const options: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
+      { text: '写真を選ぶ', onPress: () => void replacePhoto() },
+      { text: '絵柄から選ぶ', onPress: () => setPickingEmoji(true) },
+    ]
+
+    // 写真が入っているときだけ「外す」を出す。
+    // 何も無いのに削除が並んでいると、何が消えるのか分からない。
+    if (profile?.photo_url) {
+      options.push({ text: '写真を外す', style: 'destructive', onPress: () => void removePhoto() })
+    }
+    options.push({ text: 'キャンセル', style: 'cancel' })
+
+    Alert.alert('アイコンを変える', undefined, options)
+  }, [user, profile?.photo_url, replacePhoto, removePhoto])
 
   /** 絵柄の保存。未解放のものはDBのトリガーが NULL に戻すので、結果を読み直す。 */
   const saveEmoji = async (emoji: string | null) => {
@@ -311,12 +404,32 @@ export function ProfileView({ username, selfId }: Props) {
 
   const header = (
     <View style={{ paddingBottom: space.md }}>
+      {/* ── 自分のページの右上 ─────────────────────
+        * このタブにはナビゲーションのヘッダーが無いので、
+        * 設定へ行く入口をここに置く。以前はプロフィールの下に
+        * 「設定」ボタンを並べていたが、写真より下にあるうえ
+        * 「プロフィールを編集」と役割が紛らわしかった。
+        */}
+      {isOwn && (
+        <View style={styles.ownerBar}>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            accessibilityRole="button"
+            accessibilityLabel="設定"
+            hitSlop={8}
+            style={({ pressed }) => [styles.menuBtn, { opacity: pressed ? 0.45 : 1 }]}
+          >
+            <Ionicons name="menu" size={26} color={colors.text} />
+          </Pressable>
+        </View>
+      )}
+
       <View style={styles.top}>
         <Pressable
-          onPress={isOwn ? () => setPickingEmoji(true) : undefined}
-          disabled={!isOwn}
+          onPress={isOwn ? chooseAvatarAction : undefined}
+          disabled={!isOwn || savingPhoto}
           accessibilityRole={isOwn ? 'button' : undefined}
-          accessibilityLabel={isOwn ? 'アイコンの絵柄を変える' : undefined}
+          accessibilityLabel={isOwn ? 'アイコンを変える' : undefined}
         >
           <RankAvatar
             uri={profile.photo_url}
@@ -327,7 +440,9 @@ export function ProfileView({ username, selfId }: Props) {
           />
           {isOwn && (
             <View style={[styles.editIcon, { backgroundColor: colors.accent, borderColor: colors.bg }]}>
-              <Ionicons name="brush" size={11} color={colors.accentText} />
+              {savingPhoto
+                ? <ActivityIndicator size="small" color={colors.accentText} />
+                : <Ionicons name="camera" size={11} color={colors.accentText} />}
             </View>
           )}
         </Pressable>
@@ -335,8 +450,20 @@ export function ProfileView({ username, selfId }: Props) {
         <View style={styles.stats}>
           <Stat value={profile.posts_count} label="投稿" />
           <Stat value={profile.areas_count} label="エリア" />
-          <Stat value={profile.followers_count} label="フォロワー" />
-          <Stat value={profile.following_count} label="フォロー中" />
+          {/* 数字から相手へ行けるようにする。
+              ★ 非公開アカウントで中を見られない相手（locked）のときは
+                押せなくすること。交友関係は投稿と同じ扱いで、
+                承認されたフォロワーにだけ見せる。 */}
+          <Stat
+            value={profile.followers_count}
+            label="フォロワー"
+            onPress={locked ? undefined : () => openFollows('followers')}
+          />
+          <Stat
+            value={profile.following_count}
+            label="フォロー中"
+            onPress={locked ? undefined : () => openFollows('following')}
+          />
         </View>
       </View>
 
@@ -365,59 +492,6 @@ export function ProfileView({ username, selfId }: Props) {
         )}
       </View>
 
-      {/* ── 今月のランク ───────────────────────────
-        * 通算のランク（投稿数×エリア数）とは別の軸。
-        * 通算だけだと先に始めた人が上に居座り続けて、
-        * 後から入った人に追いつく道が無くなる。
-        * こちらは毎月ゼロに戻るので、今月やった人が今月出る。
-        *
-        * 他人のページでは、まだ届いていない月は出さない
-        * （0件の段位を突きつけても何も生まない）。
-        */}
-      {standing && (isOwn || standing.impressions > 0) && (
-        <Pressable
-          onPress={() => router.push('/ranking')}
-          style={({ pressed }) => [
-            styles.monthBox,
-            { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-          ]}
-        >
-          <View style={styles.rankBoxTop}>
-            <View style={styles.monthTitle}>
-              <View style={[styles.monthDot, { backgroundColor: monthlyTier.color }]} />
-              <Txt variant="smallMed">今月のランク · {monthlyTier.name}</Txt>
-            </View>
-            {standing.rank_position != null && (
-              <View style={styles.monthTitle}>
-                <Txt variant="caption" tone="faint">
-                  {standing.entrants}人中 {standing.rank_position}位
-                </Txt>
-                <Ionicons name="chevron-forward" size={13} color={colors.textFaint} />
-              </View>
-            )}
-          </View>
-
-          <View style={styles.monthTitle}>
-            <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
-            <Txt variant="small" tone="muted">
-              今月 {formatImpressions(standing.impressions)} 回表示
-              {profile.impressions_count > 0 && ` · 通算 ${formatImpressions(profile.impressions_count)} 回`}
-            </Txt>
-          </View>
-
-          {isOwn && (
-            <Txt variant="caption" tone="faint">
-              {monthlyNext
-                ? `${monthlyNext.name}まで あと${formatImpressions(
-                    monthlyNext.impressions - standing.impressions
-                  )}回`
-                : '今月の最上位です'}
-              {' '}· 表示回数は「公開した投稿を自分以外が開いた数」で、同じ人は1日1回まで数えます
-            </Txt>
-          )}
-        </Pressable>
-      )}
-
       {/* ── ランク（自分のページだけ） ─────────────────
         * 5段のうちのどこに居て、次の段に何が足りないかを
         * この枠の中だけで分かるようにしてある（RankLadder）。
@@ -441,20 +515,14 @@ export function ProfileView({ username, selfId }: Props) {
 
       <View style={styles.actions}>
         {isOwn ? (
-          <>
-            <Button
-              title="プロフィールを編集"
-              variant="secondary"
-              style={{ flex: 1 }}
-              onPress={() => router.push('/settings/edit-profile')}
-            />
-            <Button
-              title="設定"
-              variant="secondary"
-              style={{ width: 96 }}
-              onPress={() => router.push('/settings')}
-            />
-          </>
+          // 設定は右上のメニューへ、写真と絵柄はアイコンへ移した。
+          // ここに残すのは「名前や自己紹介を直す」入口だけ。
+          <Button
+            title="プロフィールを編集"
+            variant="secondary"
+            style={{ flex: 1 }}
+            onPress={() => router.push('/settings/edit-profile')}
+          />
         ) : (
           <>
             <Button
@@ -550,13 +618,6 @@ export function ProfileView({ username, selfId }: Props) {
               </View>
             )}
 
-            {isFeatured(item.featured_at) && (
-              <View style={styles.featured}>
-                <Ionicons name="flame" size={10} color="#fff" />
-                <Txt style={styles.featuredText}>注目</Txt>
-              </View>
-            )}
-
             {/* 自分の投稿だけ、公開/非公開をその場で切り替えられる */}
             {isOwn && (
               <Pressable
@@ -603,6 +664,13 @@ export function ProfileView({ username, selfId }: Props) {
 }
 
 const styles = StyleSheet.create({
+  ownerBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: space.sm,
+  },
+  /** 44x44 は Apple のヒットターゲットの下限（HeaderBack と同じ） */
+  menuBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   top: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -637,12 +705,6 @@ const styles = StyleSheet.create({
     marginHorizontal: space.lg, marginTop: space.lg,
     padding: space.md, borderRadius: radius.md, gap: space.sm,
   },
-  monthBox: {
-    marginHorizontal: space.lg, marginTop: space.lg,
-    padding: space.md, borderRadius: radius.md, gap: space.xs,
-  },
-  monthTitle: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  monthDot: { width: 8, height: 8, borderRadius: 4 },
   featured: {
     position: 'absolute', left: 5, bottom: 5,
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -651,9 +713,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,17,15,0.72)',
   },
   featuredText: { color: '#fff', fontSize: 9, letterSpacing: 0.8 },
-  rankBoxTop: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   lockBadge: {
     position: 'absolute', top: 5, right: 5,

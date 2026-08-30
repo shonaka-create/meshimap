@@ -1,4 +1,5 @@
-import { Platform, useColorScheme } from 'react-native'
+import { Platform } from 'react-native'
+import { useResolvedScheme } from './hooks/useThemeSetting'
 
 /**
  * MeshiMap デザインシステム —「白のギャラリー」
@@ -155,9 +156,17 @@ export const shadow = {
   },
 } as const
 
+/**
+ * 配色と寸法をまとめて返す。
+ *
+ * ★ 端末の設定を直接見ないこと。
+ *   利用者がアプリ側で「ライト固定 / ダーク固定」を選べるので、
+ *   その結果は useResolvedScheme が持っている
+ *   （hooks/useThemeSetting.tsx）。ここで useColorScheme を
+ *   呼び直すと、設定を無視する画面が1つできてしまう。
+ */
 export function useTheme() {
-  const scheme = useColorScheme()
-  const isDark = scheme === 'dark'
+  const isDark = useResolvedScheme() === 'dark'
   return {
     colors: isDark ? palette.dark : palette.light,
     isDark,

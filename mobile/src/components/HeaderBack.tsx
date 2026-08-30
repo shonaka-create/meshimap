@@ -1,7 +1,49 @@
-import { Pressable, StyleSheet } from 'react-native'
+import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useTheme } from '../theme'
+import type { ReactNode } from 'react'
+
+/**
+ * ヘッダーに置くボタンの共通の枠。
+ *
+ * ★ 中身は必ず中央に置くこと。
+ *   以前は左のボタンが flex-start、右のボタンが flex-end で、
+ *   それぞれ 44px の枠の外側の端に貼り付いていた。
+ *   ヘッダー自身の余白と合わさって左右が違う量だけ外へ寄り、
+ *   タイトルに対しても左右で見え方がずれていた。
+ *   枠の中央に置けば、左右どちらも「画面の端から同じ距離」になる。
+ *
+ * ★ 44x44 は Apple のヒットターゲットの下限。
+ *   アイコンだけを裸で置くと iOS のヘッダーは幅を測れず、
+ *   右端に食い込んだり潰れたりする。枠は必ず自分で持つ。
+ */
+export function HeaderButton({
+  onPress, disabled, accessibilityLabel, children, style,
+}: {
+  onPress: () => void
+  disabled?: boolean
+  accessibilityLabel: string
+  children: ReactNode
+  style?: StyleProp<ViewStyle>
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={8}
+      style={({ pressed }) => [
+        styles.btn,
+        { opacity: disabled ? 0.3 : pressed ? 0.45 : 1 },
+        style,
+      ]}
+    >
+      {children}
+    </Pressable>
+  )
+}
 
 /**
  * ヘッダーの戻るボタン。
@@ -24,15 +66,9 @@ export function HeaderBack() {
   if (!router.canGoBack()) return null
 
   return (
-    <Pressable
-      onPress={() => router.back()}
-      accessibilityRole="button"
-      accessibilityLabel="戻る"
-      hitSlop={8}
-      style={({ pressed }) => [styles.btn, { opacity: pressed ? 0.45 : 1 }]}
-    >
+    <HeaderButton onPress={() => router.back()} accessibilityLabel="戻る">
       <Ionicons name="chevron-back" size={26} color={colors.text} />
-    </Pressable>
+    </HeaderButton>
   )
 }
 
@@ -50,23 +86,13 @@ export function HeaderClose({
   const { colors } = useTheme()
 
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel="閉じる"
-      hitSlop={8}
-      style={({ pressed }) => [
-        styles.btn,
-        { opacity: disabled ? 0.3 : pressed ? 0.45 : 1 },
-      ]}
-    >
+    <HeaderButton onPress={onPress} disabled={disabled} accessibilityLabel="閉じる">
       <Ionicons name="close" size={24} color={colors.text} />
-    </Pressable>
+    </HeaderButton>
   )
 }
 
 const styles = StyleSheet.create({
   /** 44x44 は Apple のヒットターゲットの下限。見た目より押せる範囲を優先する */
-  btn: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
+  btn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 })

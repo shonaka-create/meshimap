@@ -57,6 +57,10 @@ export interface Spot {
   /** うち、自分がフォローしている人の数 */
   following_visitors: number
   impressions: number
+  /**
+   * ★ 使っていない。「注目」の機能は画面から外した。
+   *   RPC（移行 0011）は今も返してくるので、型としては残す。
+   */
   is_featured: boolean
   /** デモアカウントの投稿を含むか。含むなら画面で断る（移行0010） */
   has_demo: boolean
@@ -119,9 +123,6 @@ export function reasonsOf(spot: Spot): string[] {
     out.push(`フォロー中の${spot.following_visitors}人が訪問`)
   } else if (spot.visitors > 1) {
     out.push(`${spot.visitors}人が訪問`)
-  }
-  if (spot.is_featured) {
-    out.push('いま注目')
   }
   // 届いた人数は、少ないうちは出さない。「3人が見た」は推す根拠にならない。
   if (spot.impressions >= 100) {

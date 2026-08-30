@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, space, radius, shadow, GENRE_EMOJI } from '../theme'
 import { Avatar, Txt } from './ui'
 import { openDirections, openInMaps } from '../lib/maps'
-import { isFeatured } from '../lib/impressions'
 import { DemoNotice } from './DemoNotice'
 import type { Post } from '../lib/types'
 
@@ -32,14 +31,6 @@ export function PostPreviewSheet({
     >
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          {/* 注目は店名の上に置く。店名の横に足すと、名前が長い店で
-              先に切れてしまい、注目の投稿ほど出なくなる。 */}
-          {isFeatured(post.featured_at) && (
-            <View style={[styles.featured, { borderColor: colors.accent }]}>
-              <Ionicons name="flame" size={11} color={colors.accent} />
-              <Txt variant="caption" tone="accent" style={{ letterSpacing: 1.2 }}>注目</Txt>
-            </View>
-          )}
           <Txt variant="heading" numberOfLines={1}>{post.location_name}</Txt>
           <View style={styles.meta}>
             <Txt variant="small" tone="muted">

@@ -2,44 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
 } from 'react-native'
-import * as ImagePicker from 'expo-image-picker'
-import * as ImageManipulator from 'expo-image-manipulator'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
+import {
+  deleteAvatarByUrl, isPhotoPermissionError, pickAvatarImage, uploadAvatar,
+} from '../../src/lib/avatar'
 import { useAuth, validateUsername } from '../../src/hooks/useAuth'
 import {
   anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
 } from '../../src/lib/moderation'
 import { useTheme, space } from '../../src/theme'
 import { Avatar, Button, Field, Txt } from '../../src/components/ui'
-
-/**
- * 置き換えた前のアイコンを消す。
- *
- * 公開URLは `.../object/public/avatars/<uid>/<file>` の形。
- * バケット名より後ろがオブジェクトのパスになる。
- * 自分のフォルダ配下でなければ触らない（他人のURLが
- * 入っていた場合に消しにいかないため。Storage の
- * ポリシー上も通らないが、こちらでも見ておく）。
- *
- * 消せなくても保存は成功しているので、ログだけ残して黙って進む。
- */
-async function removeAvatar(userId: string, publicUrl: string) {
-  try {
-    const marker = '/object/public/avatars/'
-    const at = publicUrl.indexOf(marker)
-    if (at < 0) return
-
-    const path = decodeURIComponent(publicUrl.slice(at + marker.length).split('?')[0])
-    if (!path.startsWith(`${userId}/`)) return
-
-    const { error } = await supabase.storage.from('avatars').remove([path])
-    if (error) console.warn('[edit-profile] 前のアイコンを消せませんでした', error.message)
-  } catch (e) {
-    console.warn('[edit-profile] 前のアイコンの後片付けに失敗', e)
-  }
-}
 
 export default function EditProfile() {
   const { user, profile, refreshProfile, isUsernameAvailable } = useAuth()
@@ -93,20 +67,19 @@ export default function EditProfile() {
   }, [username, usernameChanged, usernameError, isUsernameAvailable])
 
   const pickPhoto = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!perm.granted) {
-      Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
-      return
+    try {
+      const uri = await pickAvatarImage()
+      if (!uri) return
+      // ここでは上げない。保存を押したときにまとめて上げる
+      setNewPhoto(uri)
+      setPhotoUri(uri)
+    } catch (e) {
+      if (isPhotoPermissionError(e)) {
+        Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
+        return
+      }
+      Alert.alert('写真を選べませんでした', (e as Error).message)
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    })
-    if (res.canceled) return
-    setNewPhoto(res.assets[0].uri)
-    setPhotoUri(res.assets[0].uri)
   }
 
   const save = async () => {
@@ -127,26 +100,15 @@ export default function EditProfile() {
     }
 
     setSaving(true)
+    // 上げたのに保存が通らなかった画像。片付ける対象
+    let orphan: string | null = null
+
     try {
       let photoUrl = profile.photo_url
 
       if (newPhoto) {
-        const m = await ImageManipulator.manipulateAsync(
-          newPhoto,
-          [{ resize: { width: 512 } }],
-          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
-        )
-        const res = await fetch(m.uri)
-        const bytes = await res.arrayBuffer()
-
-        // Storage ポリシーが先頭フォルダ = 自分のUID を要求する
-        const path = `${user.id}/avatar_${Date.now()}.jpg`
-        const { error: upErr } = await supabase.storage
-          .from('avatars')
-          .upload(path, bytes, { contentType: 'image/jpeg', upsert: true })
-        if (upErr) throw upErr
-
-        photoUrl = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+        photoUrl = await uploadAvatar(user.id, newPhoto)
+        orphan = photoUrl
       }
 
       const { error } = await supabase.from('profiles').update({
@@ -165,12 +127,18 @@ export default function EditProfile() {
       //   前のアイコンがいつまでも開ける。
       //   先に消すと、保存に失敗したときにアイコンだけ消える。
       if (newPhoto && profile.photo_url && profile.photo_url !== photoUrl) {
-        await removeAvatar(user.id, profile.photo_url)
+        await deleteAvatarByUrl(user.id, profile.photo_url)
       }
+      orphan = null   // 保存が通ったので、これはもう孤児ではない
 
       await refreshProfile()
       router.back()
     } catch (e) {
+      // ★ 上げたのに使わなかった画像は片付ける。
+      //   置いたままにすると、public バケットに誰からも参照されない
+      //   写真が溜まっていく。
+      if (orphan) await deleteAvatarByUrl(user.id, orphan)
+
       // DBのトリガーに止められた場合は、端末側で弾いたときと同じ文言を出す
       if (isProhibitedContentError(e)) {
         Alert.alert('保存できません', PROHIBITED_CONTENT_MESSAGE)

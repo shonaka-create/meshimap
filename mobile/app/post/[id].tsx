@@ -12,11 +12,10 @@ import { useTheme, space, radius, GENRE_EMOJI, SITUATION_EMOJI } from '../../src
 import { Avatar, EmptyState, Loading, Txt } from '../../src/components/ui'
 import { DemoNotice } from '../../src/components/DemoNotice'
 import { ReportDialog } from '../../src/components/ReportDialog'
+import { HeaderButton } from '../../src/components/HeaderBack'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { openDirections, openInMaps } from '../../src/lib/maps'
-import {
-  FEATURED_WINDOW_DAYS, formatImpressions, isFeatured, recordImpression,
-} from '../../src/lib/impressions'
+import { formatImpressions, recordImpression } from '../../src/lib/impressions'
 import type { Post } from '../../src/lib/types'
 
 /**
@@ -296,10 +295,9 @@ export default function PostDetail() {
           // ヘッダーにも出す。本文が長いとき、下まで
           // スクロールしないと通報できないのでは導線として弱い。
           //
-          // ★ 大きさを自分で決めること。
-          //   アイコンだけを裸で置くと、iOS のヘッダーは幅を測れず
-          //   右端に食い込んだり潰れたりする。
-          //   44x44 は Apple のヒットターゲットの下限でもある。
+          // ★ 枠は HeaderButton に任せること。
+          //   ここで独自に組むと、左の戻るボタンと寄せ方が食い違って
+          //   左右で違う量だけ外へずれる（実際そうなっていた）。
           //
           //   自分の投稿には通報の代わりに削除を出す。
           //   同じ場所で役割が入れ替わるだけなので、
@@ -307,26 +305,22 @@ export default function PostDetail() {
           headerRight:
             canReport || isMine
               ? () => (
-                  <Pressable
+                  <HeaderButton
                     onPress={isMine ? confirmDelete : () => setReporting(true)}
                     disabled={deleting}
-                    accessibilityRole="button"
                     accessibilityLabel={isMine ? 'この投稿を削除する' : 'この投稿を通報する'}
-                    style={({ pressed }) => [
-                      styles.headerBtn,
-                      { opacity: pressed || deleting ? 0.45 : 1 },
-                    ]}
                   >
                     {deleting ? (
                       <ActivityIndicator size="small" color={colors.textFaint} />
                     ) : (
                       <Ionicons
+                        // 左の戻る矢印(26)と見た目の重さを揃える
                         name={isMine ? 'trash-outline' : 'flag-outline'}
-                        size={20}
+                        size={22}
                         color={isMine ? colors.danger : colors.text}
                       />
                     )}
-                  </Pressable>
+                  </HeaderButton>
                 )
               : undefined,
         }}
@@ -382,17 +376,6 @@ export default function PostDetail() {
               <Txt variant="caption" tone="faint">
                 {[post.prefecture, area].filter(Boolean).join(' · ').toUpperCase()}
               </Txt>
-            )}
-
-            {/* 注目。編集部が選ぶのではなく、直近で実際に見られた数で自動的に立つ。
-                「誰かが推した」ではなく「いま人が集まっている」を示すもの。 */}
-            {isFeatured(post.featured_at) && (
-              <View style={[styles.featured, { borderColor: colors.accent }]}>
-                <Ionicons name="flame" size={12} color={colors.accent} />
-                <Txt variant="caption" tone="accent" style={{ letterSpacing: 1.2 }}>
-                  注目
-                </Txt>
-              </View>
             )}
 
             <Txt variant="title">{post.location_name}</Txt>
@@ -512,12 +495,6 @@ export default function PostDetail() {
             </View>
           </View>
 
-          {isFeatured(post.featured_at) && (
-            <Txt variant="caption" tone="faint">
-              直近{FEATURED_WINDOW_DAYS}日でよく見られている投稿です
-            </Txt>
-          )}
-
           {/* ── 店へ向かう導線。
                 外部の地図アプリを URL で開くだけなので API 費用はかからない ── */}
           <View style={styles.actions}>
@@ -607,11 +584,6 @@ const styles = StyleSheet.create({
   },
   dot: { width: 5, height: 5, borderRadius: 3 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: 2 },
-  featured: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    alignSelf: 'flex-start', borderWidth: 1, borderRadius: radius.sm,
-    paddingHorizontal: space.sm, paddingVertical: 3,
-  },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   author: {
     flexDirection: 'row', alignItems: 'center', gap: space.md,
@@ -619,8 +591,6 @@ const styles = StyleSheet.create({
   },
   tags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
   hashtags: { lineHeight: 22 },
-  /** ヘッダー右のボタン。幅を自分で持たないと iOS のヘッダーで潰れる */
-  headerBtn: { width: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' },
   tag: {
     paddingHorizontal: space.md, paddingVertical: 5,
     borderRadius: radius.sm, borderWidth: 1,
