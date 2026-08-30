@@ -1,0 +1,87 @@
+# ============================================================
+# MeshiMap リリース（iOS）
+#
+# 使い方:
+#   git tag v1.0.3 && git push origin v1.0.3
+#   → これが走って、ビルド → App Store Connect（TestFlight）まで行く。
+#
+# ★ 審査への提出はここではやらない。
+#   TestFlight に上がったら App Store Connect で自分の目で確かめて、
+#   問題なければ手で「審査へ提出」を押す。
+#   自動で審査に出すと、間違いに気づいてから止められない。
+#
+# ★ タグを打つ前に、mobile/app.config.ts の version を上げること。
+#   buildNumber は eas.json の autoIncrement 任せなので触らない。
+# ============================================================
+
+name: リリース（iOS）
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # ------------------------------------------------------------
+  # 移行SQLが本番DBに入っているかを、ビルド前に確かめる。
+  #
+  # このアプリは「SQLを先に流す → アプリを更新する」という順番が要る。
+  # 逆をやると、新しいアプリが古いDBを叩いて地図のバブルが出なくなる。
+  # 人間は順番を忘れるので、機械に止めさせる。
+  #
+  # 見ているのは post_counts_by_region の3引数版（移行 0017）。
+  # 入っていなければ PostgREST が PGRST202（関数が見つからない）を返す。
+  # ------------------------------------------------------------
+  db_guard:
+    name: DBに移行が入っているか確かめる
+    environment: production
+    steps:
+      - name: post_counts_by_region が3引数で応答するか
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EXPO_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${EXPO_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
+            echo "本番の Supabase の接続先が環境変数に入っていません。"
+            echo "EAS の production 環境に EXPO_PUBLIC_SUPABASE_URL と"
+            echo "EXPO_PUBLIC_SUPABASE_ANON_KEY を設定してください。"
+            exit 1
+          fi
+
+          # -f を付けないのは、本文（エラー内容）を読みたいから。
+          # 代わりに HTTP ステータスを末尾に出させて自分で判定する。
+          RESPONSE=$(curl -sS -w '\n%{http_code}' \
+            -X POST "${EXPO_PUBLIC_SUPABASE_URL}/rest/v1/rpc/post_counts_by_region" \
+            -H "apikey: ${EXPO_PUBLIC_SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${EXPO_PUBLIC_SUPABASE_ANON_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d '{"p_level":"prefecture","p_prefecture":null,"p_genre":null}')
+
+          STATUS=$(printf '%s' "$RESPONSE" | tail -n 1)
+          BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+
+          if [ "$STATUS" != "200" ]; then
+            echo "移行 0017 がまだ本番DBに入っていないようです（HTTP ${STATUS}）。"
+            echo "$BODY"
+            echo ""
+            echo "supabase/migrations/0017_region_counts_by_genre.sql を"
+            echo "Supabase の SQL Editor で流してから、タグを打ち直してください。"
+            exit 1
+          fi
+
+          echo "OK: 3引数の post_counts_by_region が応答しました。"
+
+  build:
+    name: ビルド
+    needs: [db_guard]
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  submit:
+    name: App Store Connect へ送る
+    needs: [build]
+    type: submit
+    params:
+      build_id: ${{ needs.build.outputs.build_id }}
+      profile: production

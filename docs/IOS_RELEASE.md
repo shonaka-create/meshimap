@@ -549,6 +549,53 @@ SQL（Supabase の SQL Editor）→ eas build → eas submit → 審査提出
 > DB 側の修正は、既に配信済みのアプリを使っている人にもその場で効きます。
 > 詳しくは `docs/BUG_REPORT.md` と `SETUP.md` の適用表を参照。
 
+### 10-5. タグを打つだけで出す（EAS Workflows）
+
+10-2 の手順を毎回手で叩かなくてよいように、`mobile/.eas/workflows/release-ios.yml`
+を用意してあります。**バージョンを上げてタグを打つだけ**で、クラウド側が
+ビルドから App Store Connect への送信までやります。
+
+```bash
+# 1. mobile/app.config.ts の version を上げてコミット
+#    （buildNumber は触らない。EAS が採番する）
+git commit -am "chore: バージョンを 1.0.3 にする"
+
+# 2. タグを打って push
+git tag v1.0.3
+git push origin main --tags
+```
+
+進み具合は https://expo.dev/accounts/shonakacreate/projects/meshimap/workflows
+
+**このワークフローは審査に出しません。** TestFlight に上がるところで止まります。
+実機で自分の目で確かめてから、App Store Connect で手で「審査へ提出」を押して
+ください（10-3）。自動で審査に出すと、間違いに気づいてから止められません。
+
+#### SQL の順番はワークフローが見張ります
+
+10-4 の「SQL が先」を人間が忘れないよう、ビルド前に `db_guard` という段を
+入れてあります。本番DBに向かって `post_counts_by_region` を3引数で呼び、
+返ってこなければ**ビルドに進まずに落ちます**。
+
+落ちたら、未適用の移行を Supabase の SQL Editor で流してから、
+同じタグを打ち直してください。
+
+```bash
+git tag -d v1.0.3 && git push origin :refs/tags/v1.0.3   # 消して
+git tag v1.0.3   && git push origin v1.0.3               # 打ち直す
+```
+
+> この見張りが見ているのは移行 0017 だけです。今後、新しい移行を足して
+> それがアプリの動作に必須なら、`db_guard` の確認も足してください。
+> 「全部の移行が入っているか」を自動で知る方法は無いので、ここは手で育てます。
+
+#### 動かすのに要るもの
+
+`db_guard` は EAS の **production 環境**の環境変数を読みます。
+`EXPO_PUBLIC_SUPABASE_URL` と `EXPO_PUBLIC_SUPABASE_ANON_KEY` が
+そこに入っている必要があります（ビルド自体も同じ環境を使うので、
+production ビルドが通っているなら既に入っています）。
+
 ---
 
 ## 付録A: Mac を持っていない場合
