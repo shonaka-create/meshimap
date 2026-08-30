@@ -20,9 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ★ Node 24。テストが .ts をそのまま import している
+      #   （scripts/test-moderation.mjs / test-review-cases.mjs）。
+      #   写しではなく本物の実装を呼ぶための作りなので、
+      #   型を剥がせる版が要る。22 に戻すとテストが読み込めない。
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -50,6 +54,23 @@ jobs:
       # （225→307件に増やしたとき実際に起きた）。投入前に気づく。
       - name: Seed data consistency
         run: npm run check:seed
+
+      # 禁止語は端末側とDB側に二重に持っている。食い違うと
+      # 「端末では弾かれるのにDBは通す」（またはその逆）になり、
+      # 前者は素通しの穴、後者は原因の分からない保存失敗になる。
+      - name: Moderation lists in sync
+        run: npm run check:moderation
+
+      # 禁止語フィルタの本体。大事なのは「弾く」より「通す」ほうで、
+      # 「バカうまい」「デブ活」「シャブシャブ」を巻き添えにすると
+      # アプリが使えなくなる。語を足したら必ずここを通す。
+      - name: Moderation behaviour
+        run: npm run test:moderation
+
+      # 2026-08-29 の監査で直したバグの再現テスト。
+      # 直したはずのものが戻っていないかを見る（OPEN は未対応の既知バグ）。
+      - name: Review regressions
+        run: npm run test:review
 
   # モバイル（Expo）は独立した npm プロジェクト。
   # ネイティブビルドは EAS 側に任せ、ここでは型チェックのみ回す。

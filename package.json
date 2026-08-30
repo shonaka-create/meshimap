@@ -15,7 +15,8 @@
     "check:sql": "node scripts/check-sql.mjs",
     "check:seed": "node scripts/check-seed.mjs",
     "vercel:env": "node scripts/vercel-env.mjs",
-    "test:moderation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-moderation.mjs"
+    "test:moderation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-moderation.mjs",
+    "test:review": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-review-cases.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
