@@ -1,20 +1,25 @@
 -- ============================================================
--- MeshiMap - 初期スキーマ（適用手順の 1/6）
+-- MeshiMap - 初期スキーマ（適用手順の 1/15）
 --
 -- ⚠ このファイルだけを実行しても、アプリは動きません。
 --
 --   ここにあるのは開発初期のテーブル定義です。その後の
---   supabase/migrations/0001〜0005 で、username・公開設定・地域列・
---   ランク列・ブロック/通報・subscriptions・各 RPC が追加され、
+--   supabase/migrations/0001〜0014 で、username・公開設定・地域列・
+--   ランク列・ブロック/通報・subscriptions・表示回数・おすすめ・
+--   禁止語フィルタ・地図の枠・各 RPC が追加され、
 --   RLS も貼り直されています。
 --
---   このファイルの RLS は `USING (true)`（全員が読める）のままなので、
---   単独で適用すると非公開投稿が第三者に見えます。
+--   ★ 途中で止めると危険な箇所が2つあります。
+--     1. このファイルの RLS は `USING (true)`（全員が読める）のまま。
+--        0001 まで行かないと、非公開投稿が第三者に見えます。
+--     2. このファイルの Storage の INSERT ポリシーは置き場所を見ていない。
+--        0014 まで行かないと、ログインした誰もが
+--        public バケットの任意のパスにファイルを置けます。
 --
 --   新しい Supabase プロジェクトを作るときは、必ず
 --   SETUP.md「1-1. SQL の適用」の表のとおり
---   このファイル → 0001 → 0002 → 0003 → 0004 → 0005 の順に、
---   最後まで実行してください。
+--   このファイル → 0001 → … → 0014 の順に、最後まで実行してください。
+--   どこまで適用済みかは supabase/check_state.sql で一覧できます。
 -- ============================================================
 
 -- 1. プロフィール（auth.users を拡張）
@@ -171,6 +176,12 @@ CREATE POLICY "参加者のみ閲覧可" ON messages FOR SELECT
 CREATE POLICY "本人のみ送信可" ON messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
 
 -- Storage ポリシー
+--
+-- ⚠ 下の INSERT ポリシーは、置き場所を一切見ていない。
+--   ログインさえしていれば、他人のUIDの下にも無関係なパスにも置ける。
+--   バケットは public なので、そのまま公開ファイル置き場になる。
+--   移行 0014 が、先頭フォルダ = 自分のUID を要求する形に貼り替える。
+--   **0014 まで必ず流すこと。**
 CREATE POLICY "誰でも閲覧可" ON storage.objects FOR SELECT USING (bucket_id IN ('post-images', 'avatars'));
 CREATE POLICY "認証ユーザーのみアップロード可" ON storage.objects FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL AND bucket_id IN ('post-images', 'avatars'));
