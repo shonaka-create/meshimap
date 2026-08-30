@@ -164,3 +164,183 @@ High 6件と、同じ原因から派生する Medium/Low を修正した。未�
 7. Mobile 投稿完了画面のプロフィール再取得失敗を表示・再試行可能にする。
 8. CloudTransition の reject・アンマウント cleanup を実装する。
 9. Web 画像プレビューの Blob URL を解放する。
+
+---
+
+# 第2回 バグ監査（2026-08-29）
+
+## 監査の進め方
+
+Claude がコードを読んで候補を挙げ、再現テスト（`npm run test:review` /
+`scripts/test-review-cases.mjs`）を書き、Codex に1件ずつ裏取りさせた。
+Codex は候補15件のうち **CONFIRMED 13 / REFUTED 1 / UNCERTAIN 1** と判定し、
+さらに候補に無かった重大バグ2件（P・Q）を見つけた。
+そのあと修正パッチ自体も Codex に2回レビューさせ、指摘を反映してある。
+
+- 監査開始時 HEAD: `ab9bc86` / `git status --short` は空（clean）
+- 静的チェックは監査時点で全て成功していた。今回の問題は構文ではなく、
+  **権限・状態遷移・エラー処理**に寄っている。
+
+## 直したもの（致命的と判断した8件）
+
+| # | 内容 | 深刻度 | 主な変更 |
+|---|---|---|---|
+| Q | Storage のアップロードが自分のフォルダに限られていない | **重大（セキュリティ）** | `0014` `schema.sql` |
+| P | 月間ランキングがブロックを迂回して相手を見せる | **重大（1.2）** | `0014` |
+| G | 退会しても写真の実体が公開バケットに残る | **重大（5.1.1(v)）** | `storageCleanup.ts` `useAuth.tsx` `settings/index.tsx` |
+| E | 承認待ちのフォローが「地図に出せる人数」の枠を食う | **重大（主要機能）** | `0014` |
+| A/O | PostgREST の `.or()` を素の文字列連結で組んでいる | 高 | `filters.ts` `search.tsx` `(tabs)/index.tsx` |
+| G2 | 投稿完了画面が、取得に失敗しても古い数字を成果として出す | 高 | `useAuth.tsx` `post/done.tsx` |
+| F | 通報の送信が失敗しても画面に何も出ない | 中（1.2） | `ReportDialog.tsx` |
+| B | 「レイプ」が禁止語に入っていない（例外語だけがあった） | 中（1.2） | `moderation.ts` `0012` |
+
+### Q. Storage のアップロードが自分のフォルダに限られていない
+
+- 該当: `supabase/schema.sql:173`（旧）, `mobile/app/post/new.tsx:198`, `mobile/app/settings/edit-profile.tsx:112`
+- 症状: ログインさえしていれば、誰でも `post-images` / `avatars` の**任意のパス**に
+  任意のファイルを置ける。両バケットは public なので、投稿にも通報にも
+  モデレーションにも乗らない公開ファイル置き場として使える。
+  DELETE ポリシーだけは先頭フォルダを見ているため、他人のUIDの下に置いたものは
+  置いた本人にも消せない。
+- 原因: アプリ側は「先頭フォルダ = 自分のUID を要求する」前提でパスを組み、
+  コメントにもそう書いてあったが、INSERT ポリシーは
+  「ログイン済み かつ 対象バケット」しか見ていなかった。
+  移行 0001〜0013 のどこでも貼り直していない。
+- 対応: `0014` で INSERT を `auth.uid()::text = (storage.foldername(name))[1]` に限定。
+  upsert のために UPDATE ポリシーも同じ条件で新設（従来 UPDATE は1本も無かった）。
+
+### P. 月間ランキングがブロックを迂回する
+
+- 該当: `supabase/migrations/0009_premium_gates.sql:83`, `mobile/app/ranking.tsx:43`
+- 症状: ブロックした相手が上位3人か自分の行に該当すると、
+  アカウント名・ユーザーID・アイコンがランキングに出る。
+  ブロックの説明文「お互いの投稿とプロフィールが見えなくなります」と食い違う。
+- 原因: `monthly_ranking()` は順位を出すために `SECURITY DEFINER` で
+  profiles を直接 JOIN する。そのため profiles の RLS（ブロック相手を隠す）を通らない。
+- 対応: `0014` で、定義者権限の中に `NOT has_block_with(b.user_id)` を自分で書いた。
+  順位と `total_entrants` は絞る前の値のままにしてある
+  （見る人によって順位が変わると、同じ月の同じ人の順位が信用できなくなる）。
+
+### G. 退会しても写真が残る
+
+- 該当: `supabase/migrations/0001_accounts_privacy_regions.sql:472`, `mobile/app/settings/index.tsx:56`
+- 症状: `delete_my_account()` は `auth.users` を消すだけ。DBの行は連鎖して消えるが、
+  Storage のオブジェクトは残る。バケットは public なので、URL を控えていれば
+  退会後もその写真が開ける。画面の「写真を含むすべてのデータが削除されます」が嘘になる。
+- 対応: SQL からは実体を消せないので、**退会の直前に端末から消す**
+  （`mobile/src/lib/storageCleanup.ts`）。
+  順番が命で、先にアカウントを消すとトークンが無効になり二度と消せない。
+  消せなかったときは `PHOTO_CLEANUP_FAILED` で一度止め、
+  本人に伝えたうえで「やめる / 写真を残して削除」を選ばせる
+  （消せないから退会できない、では 5.1.1(v) を満たさないため）。
+
+### E. 承認待ちのフォローが地図の枠を食う
+
+- 該当: `supabase/migrations/0013_map_audience_gate.sql:122,174`（旧）
+- 症状: 非公開アカウントにフォロー申請を2件出すと、承認されていないのに
+  地図の枠が埋まる。その後に公開アカウントをフォローしても地図に出ず、
+  引き出しは「0人 / 2人」と出しているのに、出そうとすると
+  「地図に出せるのは2人までです」で弾かれる。
+- 原因: 枠を数えている4か所のうち `my_map_quota()` と `map_pins()` は
+  `status = 'accepted'` で絞るが、`set_follow_on_map_default()` と
+  `set_map_visible()` は絞っていなかった。
+  非公開宛のフォローは `force_follow_status()` で pending になるが、
+  同じ BEFORE INSERT のトリガーは名前順に走るため
+  （`trg_force_follow_status` → `trg_set_follow_on_map`）、
+  pending 化したあとに `on_map = true` が付いていた。
+- 対応: `0014` で数える側を `accepted` に揃え、pending は `on_map = false` で入れる。
+  承認された瞬間に数え直す BEFORE UPDATE トリガー
+  `trg_set_follow_on_map_accept` を足した。既存の pending 行も落とす。
+- 残っている制約: 複数端末から同時に承認すると、BEFORE トリガーが
+  コマンド開始時のスナップショットを見るため、一時的に枠を超えうる。
+  ただし `map_pins()` の最終 `LIMIT free_map_users()` が最後に絞るので、
+  地図の見え方は崩れない（`my_map_quota()` の数字だけが一時的にずれる）。
+
+## 直したもの（致命的ではないが、依頼を受けて対応した9件）
+
+| # | 内容 | 深刻度 | 主な変更 |
+|---|---|---|---|
+| H | `ProfileView` が通信エラーでも「このアカウントは表示できません」を出す／`notFound` が戻らない | 中 | `ProfileView.tsx` |
+| J | `isUsernameAvailable` がエラー時に false を返し「既に使われています」と誤表示する | 中 | `useAuth.tsx` `sign-up.tsx` `edit-profile.tsx` |
+| D | 投稿画像の縮小が「長辺1600px」になっていない（縦長は2133pxのまま） | 低 | `post/new.tsx` |
+| C | `openDirections` が値の空な `&destination_place_id=` を付ける | 低 | `maps.ts` |
+| K | 投稿詳細が、他画面から戻るたびに全画面ローディングになる | 低 | `post/[id].tsx` |
+| M | アイコンを変えるたび、古い画像が Storage に残る | 低 | `edit-profile.tsx` |
+| L | 非公開→公開のときの pending 一括承認のエラーを握りつぶす | 低 | `settings/index.tsx` |
+| — | `check:moderation` / `test:moderation` / `test:review` が CI に入っていない | 低 | `.github/workflows/ci.yml`（build ジョブを Node 24 へ） |
+| — | `schema.sql` のヘッダが「適用手順の 1/6」「0001〜0005」のまま古い | 低 | `schema.sql` |
+
+補足:
+
+- **J** は `'free' | 'taken' | 'unknown'` の3値にした。`unknown`（確かめられなかった）
+  では登録も保存も止めない。空いていなければ `handle_new_user()`（0005）の
+  INSERT が `profiles_username_key` で落ち、サインアップごと失敗する
+  （＝勝手に別のIDが割り当てられることはない。0001 版にあった衝突時の
+  採番し直しループは、0005 で置き換えたときに外れている）。
+  ただし Supabase はトリガーの失敗を
+  `Database error saving new user` の一文にまとめて返し、制約名までは降りてこない。
+  `toJapaneseAuthError` にこの一文の対応を足した。
+- **K** は真偽値ではなく「いま出している投稿ID」で持つ。真偽値だと、別の投稿へ
+  移ったときに前の店の写真と本文が出たままになる。あわせて取得に世代の見張り
+  （`seq`）を入れ、遅れて返った前の取得が新しい投稿を上書きしないようにした。
+- **D** は縮める必要が無ければ `resize` を渡さない。決め打ちで `width: 1600` を
+  渡すと、小さい写真やサイズが読めない写真を引き伸ばしてしまう。
+- **H** は「中身を出している最中の更新失敗」ではエラー画面に切り替えない。
+  引っ張って更新しただけで前の内容が消えるほうが困るため。
+  中身が無いまま失敗したときだけ、再読み込みできる画面を出す。
+- **M** は「保存が通ってから前のアイコンを消す」順にしてある。先に消すと、
+  保存に失敗したときにアイコンだけ消える。
+- **CI** は build ジョブだけ Node 24 に上げた。テストが `.ts` を
+  そのまま import している（写しではなく本物の実装を呼ぶため）。
+  mobile ジョブは Expo の都合があるので 22 のまま触っていない。
+
+## 未対応
+
+無し。`npm run test:review` は 37 passed / 0 failed / 0 open。
+
+## 検証
+
+- `npm run test:review` … 37 passed / 0 failed / 0 open
+- Web `npx tsc --noEmit` 成功 / Mobile `npx tsc --noEmit` 成功
+- `npm run check:sql` 成功（0014 を含む）
+- `npm run check:moderation` 成功 / `npm run test:moderation` 64件成功
+- `npm run check:regions` 成功 / `npm run check:seed` 成功
+- Web `npm run lint` 0エラー・29警告（監査時と同数）
+
+## 適用手順
+
+**`0014` を公開前に必ず流すこと。** これを流すまで Storage は開いたまま。
+**`0012` は流し直すこと。** 禁止語を足したため（冪等）。
+
+---
+
+## 追加（2026-08-30）: 地図を開いたときに現在地へ寄らないことがある
+
+配信後に報告を受けて調べた。原因は独立した2つ。
+
+### 1. 地図が組み上がる前にカメラを動かしていた
+
+- 該当: `mobile/app/(tabs)/index.tsx`（`flyTo` / 起動時の `useEffect`）
+- 症状: アプリを開いても日本全体が映ったまま。もう一度開くと直ることもある。
+- 原因: iOS の `animateToRegion` は、地図がまだ組み上がっていないうちに
+  呼んでも**何も起きずに黙って捨てられる**（エラーも出ない）。
+  起動直後の寄せは端末が覚えている位置（`lastKnown`）を使うのでほぼ即座に返り、
+  地図が組み上がるより先に呼んでいた。その1回が丸ごと消えていた。
+  そのあとの実測（`locate`）が返れば結果的に寄るので、
+  「寄るときと寄らないときがある」という出方になる。
+- 修正: `onMapReady` を足し、準備できるまでは行き先を持っておいて
+  できた瞬間に動かす。`onMapReady` の中で即座に動かすと iOS では
+  取りこぼすことがあるので、1フレーム待ってから動かす。
+
+### 2. 実測に時間制限が無かった
+
+- 該当: `mobile/src/hooks/useLocation.ts`
+- 症状: 地下や屋内で「現在地に戻る」を押すと、くるくるが回りっぱなしになる。
+  起動時の寄せも来ない。
+- 原因: `getCurrentPositionAsync` には時間制限が無い。要求した精度
+  （`Accuracy.High`）に届かないまま、いつまでも返ってこないことがある。
+- 修正: 10秒で打ち切り、端末が覚えている位置（30分以内のもの）に落とす。
+  それも無ければ、`recenter` が「現在地を取れませんでした」と伝える。
+  以前は権限を断られたときしか何も言わず、押しても無反応に見えていた。
+
+検証: Mobile `npx tsc --noEmit` 成功 / `npm run test:review` 37 passed。

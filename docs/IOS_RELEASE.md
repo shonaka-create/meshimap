@@ -463,9 +463,91 @@ App Store Review Guidelines で明確に要求されている項目です。
 ## 9. リリース後の運用
 
 - **通報の確認**: Supabase で `select * from reports where status = 'open'` を毎日確認
-- **バージョン更新**: `app.config.ts` の `version`（表示用）と `ios.buildNumber`
-  （提出ごとに必ず +1）を上げてから再ビルド
+- **バージョン更新**: 下の「2回目以降のリリース手順」を参照
 - **Google Maps の請求額**: 月初に Cloud Console で確認
+
+---
+
+## 10. 2回目以降のリリース手順（アップデートの出し方）
+
+初回リリース済みのアプリを更新するときは、ここだけ見れば足ります。
+
+### 10-1. 上げるのは `version` だけ
+
+`mobile/app.config.ts`:
+
+```ts
+version: '1.0.0',   // ← ここを上げる。例: '1.0.1'
+```
+
+**`ios.buildNumber` は触らない。** `mobile/eas.json` が
+
+```json
+"cli": { "appVersionSource": "remote" },
+"build": { "production": { "autoIncrement": true } }
+```
+
+になっているので、**ビルド番号は EAS のサーバー側が持っていて、
+production ビルドのたびに自動で +1 されます。**
+`app.config.ts` に書いてある `buildNumber: '1'` は production では使われません
+（初回に置いた名残なので、そのままで問題ありません）。
+
+`version` の付け方の目安:
+
+| 変更の中身 | 例 |
+|---|---|
+| バグ修正だけ | `1.0.0` → `1.0.1` |
+| 機能追加 | `1.0.1` → `1.1.0` |
+| 作り直しに近い大改修 | `1.1.0` → `2.0.0` |
+
+同じ `version` で再提出することもできます（審査に落ちて出し直すときなど）。
+その場合はビルド番号だけが変わります。
+
+### 10-2. ビルドして提出
+
+```bash
+cd mobile
+
+# 1. ビルド（クラウド。15〜30分ほど）
+eas build --platform ios --profile production
+
+# 2. App Store Connect へ送る
+eas submit --platform ios --profile production
+```
+
+`eas submit` の宛先（`ascAppId: 6800513636`）は `eas.json` に入れてあるので、
+アプリを選び直す必要はありません。
+
+送ると TestFlight に数分〜30分ほどで出てきます。
+**まず TestFlight で実機確認してから**、次に進んでください。
+
+### 10-3. App Store Connect で審査に出す
+
+ここだけはブラウザでの作業です。
+
+1. https://appstoreconnect.apple.com → マイApp → MeshiMap
+2. 左の「App Store」タブ →「**+ バージョンまたはプラットフォーム**」
+3. 10-1 で設定したのと**同じバージョン番号**を入れる
+4. 「このバージョンの新機能」に変更点を日本語で書く（利用者に見えます）
+5. 「ビルド」で、さきほど送ったビルドを選ぶ
+6. 「審査へ提出」
+
+審査は通常1〜3日。通ったあとの公開は「自動」か「手動」を選べます。
+
+### 10-4. DB の移行が絡むとき
+
+**アプリより先に SQL を流すこと。** 新しいアプリが、まだ無い列や関数を
+読みにいくと、その画面が丸ごと空になります。順番は必ず
+
+```
+SQL（Supabase の SQL Editor）→ eas build → eas submit → 審査提出
+```
+
+いま未適用のものがあるかは `supabase/check_state.sql` で確認できます。
+
+> ⚠️ **セキュリティに関わる移行は、アプリの更新を待たずに先に流してください。**
+> DB 側の修正は、既に配信済みのアプリを使っている人にもその場で効きます。
+> 詳しくは `docs/BUG_REPORT.md` と `SETUP.md` の適用表を参照。
 
 ---
 
@@ -490,4 +572,5 @@ Mac は不要です。ただし以下は Mac 以外でも必要になります�
 | Expo Go で地図が出ない | `react-native-maps` はネイティブモジュール。`expo prebuild` + `run:ios` が必要 |
 | ログインが毎回切れる | `mobile/.env` の anon キー未設定、または Keychain 保存の失敗 |
 | アイコンで審査リジェクト | `icon.png` に**透過**が含まれている |
-| ビルド番号の重複エラー | `ios.buildNumber` を上げ忘れている |
+| ビルド番号の重複エラー | `eas.json` の `appVersionSource: "remote"` が外れている（本来 EAS が自動で +1 する） |
+| 「このバージョンは既に App Store にあります」 | `app.config.ts` の `version` を上げ忘れている |
