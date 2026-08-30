@@ -10,7 +10,7 @@ const config: ExpoConfig = {
   slug: 'meshimap',
   // Expo アカウントを2つ持っているので、どちらのものかを明示しておく
   owner: 'shonakacreate',
-  version: '1.0.1',
+  version: '1.0.2',
   orientation: 'portrait',
   scheme: 'meshimap',
   userInterfaceStyle: 'automatic',
