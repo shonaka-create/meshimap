@@ -74,9 +74,41 @@ export default function PostDetail() {
    */
   const counted = useRef<string | null>(null)
 
+  /**
+   * いま中身を出している投稿のID。
+   *
+   * ★ 真偽値ではなくIDで持つこと。
+   *   「一度でも出したか」だけだと、別の投稿へ移ったときにも
+   *   前の投稿を出したままになり、取得が終わるまで
+   *   違う店の写真と本文が見えてしまう。
+   */
+  const shownId = useRef<string | null>(null)
+
+  /**
+   * 取得の世代。あとから始めた取得だけを採用する。
+   *
+   * この画面は useFocusEffect で読み直すうえ、プレビューから
+   * 続けて別の投稿を開ける。前の取得が遅れて返ると、
+   * 新しく開いた投稿を古い投稿で上書きしてしまう。
+   */
+  const seq = useRef(0)
+
   const load = useCallback(async () => {
     if (!id) return
-    setLoading(true)
+
+    const mine = ++seq.current
+
+    // ★ 同じ投稿を読み直すときは、出しているものを消さないこと。
+    //   この画面は useFocusEffect で読み直すので、
+    //   他の画面から戻るたびに全画面ローディングへ切り替わり、
+    //   写真も本文も一度消えてから描き直されていた。
+    //   別の投稿に移ったときは、逆に必ずローディングにする。
+    const samePost = shownId.current === id
+    if (!samePost) {
+      setPost(null)
+      setNotFound(false)
+      setLoading(true)
+    }
 
     // RLS が非公開投稿を弾くので、見えなければ 0 行で返る。
     const { data, error } = await supabase
@@ -84,6 +116,9 @@ export default function PostDetail() {
       .select(POST_SELECT)
       .eq('id', id)
       .maybeSingle()
+
+    // 追い越された取得の結果は捨てる
+    if (mine !== seq.current) return
 
     if (error) {
       console.warn('[post] 取得に失敗', error.message)
@@ -98,6 +133,7 @@ export default function PostDetail() {
     }
 
     const p = toPost(data)
+    shownId.current = p.id
     setPost(p)
     setLikes(p.likes_count ?? 0)
     setImpressions(p.impressions_count ?? 0)
@@ -113,13 +149,14 @@ export default function PostDetail() {
     }
 
     if (user) {
-      const { data: mine } = await supabase
+      const { data: liked } = await supabase
         .from('likes')
         .select('post_id')
         .eq('post_id', p.id)
         .eq('user_id', user.id)
         .maybeSingle()
-      setLiked(!!mine)
+      if (mine !== seq.current) return
+      setLiked(!!liked)
     }
     setLoading(false)
   }, [id, user])

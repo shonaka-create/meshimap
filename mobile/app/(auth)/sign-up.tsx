@@ -11,7 +11,15 @@ import { useTheme, space, radius, shadow } from '../../src/theme'
 import { Button, Field, Txt } from '../../src/components/ui'
 import { AuthBackdrop, AuthBrand } from '../../src/components/AuthBackdrop'
 
-type Availability = 'idle' | 'checking' | 'free' | 'taken' | 'invalid'
+/**
+ * ユーザーIDの空き状況。
+ *
+ * ★ 'unknown'（確かめられなかった）を 'taken' と混ぜないこと。
+ *   混ぜると、圏外で登録しようとした人に
+ *   「このユーザーIDは既に使われています」と出て、
+ *   何度打ち直しても進めなくなる。
+ */
+type Availability = 'idle' | 'checking' | 'free' | 'taken' | 'unknown' | 'invalid'
 
 export default function SignUp() {
   const { signUp, isUsernameAvailable } = useAuth()
@@ -43,10 +51,10 @@ export default function SignUp() {
     setAvailability('checking')
     const seq = ++checkSeq.current
     const timer = setTimeout(async () => {
-      const free = await isUsernameAvailable(username)
+      const result = await isUsernameAvailable(username)
       // 入力が進んでいたら古い結果は捨てる
       if (seq !== checkSeq.current) return
-      setAvailability(free ? 'free' : 'taken')
+      setAvailability(result)
     }, 450)
 
     return () => clearTimeout(timer)
@@ -102,15 +110,21 @@ export default function SignUp() {
     checking: <ActivityIndicator size="small" color={colors.textFaint} />,
     free: <Ionicons name="checkmark-circle" size={20} color={colors.geo} />,
     taken: <Ionicons name="close-circle" size={20} color={colors.danger} />,
+    unknown: <Ionicons name="cloud-offline-outline" size={20} color={colors.textFaint} />,
   }[availability]
 
   const usernameHint =
     availability === 'taken'
       ? undefined
-      : '小文字のアルファベットのみ・3〜20文字。あとから変更できます。'
+      : availability === 'unknown'
+        ? '空きを確かめられませんでした。このまま登録できます。'
+          + '既に使われていた場合は、登録のときにお知らせします。'
+        : '小文字のアルファベットのみ・3〜20文字。あとから変更できます。'
 
+  // 'unknown'（確かめられなかった）でも進ませる。
+  // 空いていなければ DB の UNIQUE 制約が弾き、同じ文言が出る。
   const canSubmit =
-    !!displayName.trim() && availability === 'free' &&
+    !!displayName.trim() && (availability === 'free' || availability === 'unknown') &&
     !!email.trim() && password.length >= 6
     && agreed && agreedContent && agreedAge && !busy
 

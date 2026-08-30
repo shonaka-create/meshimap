@@ -9,6 +9,32 @@ export interface Coords {
 type PermissionState = 'unknown' | 'granted' | 'denied'
 
 /**
+ * 実測を待つ上限(ms)。
+ *
+ * 屋外なら数秒で返る。ここで切っても、端末が覚えている位置に
+ * 落とすだけなので何も映らなくなることはない。
+ * 短くしすぎると、少し待てば取れた正確な位置を捨てることになる。
+ */
+const LOCATE_TIMEOUT_MS = 10_000
+
+/**
+ * 時間内に返らなければ null にする。
+ *
+ * AbortSignal.timeout は Hermes に無いことがあるので自前で組む
+ * （lib/geocode.ts と同じ理由）。元の Promise は止められないが、
+ * 待つのをやめるだけなので害は無い。
+ */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms)
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v) },
+      (e) => { clearTimeout(timer); console.warn('[location] 実測に失敗', e); resolve(null) }
+    )
+  })
+}
+
+/**
  * 現在地の取得。
  * 位置情報は「あると便利」であって必須ではないので、
  * 拒否されてもアプリは通常どおり使えるようにする。
@@ -41,18 +67,49 @@ export function useLocation() {
    *
    * ★ 精度は High。既定の Balanced は基地局や Wi-Fi だけで済ませることがあり、
    *   数百メートルずれる。「現在地」と言って隣の駅が映ると壊れて見える。
+   *
+   * ★ 必ず打ち切ること。
+   *   getCurrentPositionAsync には時間制限が無い。地下や屋内、
+   *   機内モードから戻った直後などでは、要求した精度に届かないまま
+   *   いつまでも返ってこないことがある。そのあいだ
+   *   「現在地に戻る」のくるくるは回りっぱなしで、
+   *   起動時の寄せも来ない（＝日本全体が映ったまま）。
+   *   打ち切ったら、端末が覚えている位置で代える。
+   *   ずれていても、どこも映らないよりはいい。
    */
   const locate = useCallback(async (): Promise<Coords | null> => {
     setLocating(true)
     try {
       if (!(await ensurePermission())) return null
 
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+      const pos = await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        LOCATE_TIMEOUT_MS
+      )
+
+      if (pos) {
+        const next = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        }
+        if (mounted.current) setCoords(next)
+        return next
+      }
+
+      // 時間内に測りきれなかった。端末が覚えている位置で代える
+      console.warn('[location] 実測が時間内に返らないので、最後に知っている位置を使う')
+      // ★ 古すぎるものは使わない。
+      //   時間の上限を付けないと、昨日いた街に飛ぶことがある。
+      //   「現在地に戻る」を押して別の街が映るのは、
+      //   何も起きないより悪い。
+      const known = await Location.getLastKnownPositionAsync({
+        maxAge: 30 * 60 * 1000,
       })
+      if (!known) return null
+
       const next = {
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
+        latitude: known.coords.latitude,
+        longitude: known.coords.longitude,
       }
       if (mounted.current) setCoords(next)
       return next

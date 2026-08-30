@@ -42,6 +42,29 @@ const MAX_IMAGES = 5
  */
 const ADJUST_DELTA = 0.003
 
+/** 写真の長辺の上限(px)。これを超える辺だけを縮める */
+const MAX_IMAGE_EDGE = 1600
+
+/**
+ * 長い方の辺を MAX_IMAGE_EDGE に合わせる resize 引数を作る。
+ * 縮める必要が無ければ null を返す（呼び出し側は resize を渡さない）。
+ *
+ * ImageManipulator は width / height の片方だけを渡すと縦横比を保つので、
+ * 長い方だけを指定すればよい。
+ *
+ * ★ 引き伸ばさないこと。
+ *   元から小さい写真に width: 1600 を渡すと、拡大されて
+ *   画質が落ちたうえにファイルまで大きくなる。
+ *   サイズが読めなかったときも同じで、決め打ちで 1600 を渡すと
+ *   小さい写真を引き伸ばしうる。読めないなら縮めない
+ *   （その場合も compress は効くので、素の原寸のままにはならない）。
+ */
+function resizeToLongEdge(width?: number, height?: number) {
+  if (!width || !height) return null
+  if (Math.max(width, height) <= MAX_IMAGE_EDGE) return null
+  return width >= height ? { width: MAX_IMAGE_EDGE } : { height: MAX_IMAGE_EDGE }
+}
+
 interface Picked {
   uri: string
   width: number
@@ -185,10 +208,17 @@ export default function NewPost() {
       for (let i = 0; i < images.length; i++) {
         setProgress(`写真をアップロード中… ${i + 1}/${images.length}`)
 
-        // 原寸のままだと数MBになり通信量と表示速度を圧迫するので長辺1600pxに落とす
+        // 原寸のままだと数MBになり通信量と表示速度を圧迫するので長辺1600pxに落とす。
+        //
+        // ★ width だけ渡さないこと。
+        //   ImageManipulator は片方だけ指定すると縦横比を保つので、
+        //   width を 1600 にしても縦長の写真は縦が 2133px のまま残る。
+        //   iPhone の写真は縦持ちが普通なので、実際にはほとんどが
+        //   縮みきっていなかった。長い方の辺を 1600 にする。
+        const resize = resizeToLongEdge(images[i].width, images[i].height)
         const manipulated = await ImageManipulator.manipulateAsync(
           images[i].uri,
-          [{ resize: { width: Math.min(images[i].width || 1600, 1600) } }],
+          resize ? [{ resize }] : [],
           { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
         )
 

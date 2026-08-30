@@ -37,11 +37,16 @@ export function openInMaps(locationName: string, area?: string | null) {
  * 店名検索と違って場所がずれないので、「行き方が知りたい」ときはこちら。
  */
 export function openDirections(lat: number, lng: number, label?: string) {
+  // ★ destination_place_id は付けない。
+  //   以前は label があるときに値の空な `&destination_place_id=` を
+  //   足していたが、あれは Google の Place ID を渡すための項目で、
+  //   店名を入れる場所ではない。空で送っても意味が無く、
+  //   Google 側の解釈に賭ける形になっていた。
+  //   座標だけで目的地は一意に決まるので、余計な項目は出さない。
+  //   （店名で探したいときは openInMaps のほう）
+  void label
   const dest = `${lat},${lng}`
-  const url =
-    `${GOOGLE_DIR}&destination=${encodeURIComponent(dest)}` +
-    (label ? `&destination_place_id=` : '')
-  return open(url)
+  return open(`${GOOGLE_DIR}&destination=${encodeURIComponent(dest)}`)
 }
 
 /** iOS で Apple 地図を使いたい人向け（設定などから呼ぶ想定） */

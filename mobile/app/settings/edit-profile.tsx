@@ -14,6 +14,33 @@ import {
 import { useTheme, space } from '../../src/theme'
 import { Avatar, Button, Field, Txt } from '../../src/components/ui'
 
+/**
+ * 置き換えた前のアイコンを消す。
+ *
+ * 公開URLは `.../object/public/avatars/<uid>/<file>` の形。
+ * バケット名より後ろがオブジェクトのパスになる。
+ * 自分のフォルダ配下でなければ触らない（他人のURLが
+ * 入っていた場合に消しにいかないため。Storage の
+ * ポリシー上も通らないが、こちらでも見ておく）。
+ *
+ * 消せなくても保存は成功しているので、ログだけ残して黙って進む。
+ */
+async function removeAvatar(userId: string, publicUrl: string) {
+  try {
+    const marker = '/object/public/avatars/'
+    const at = publicUrl.indexOf(marker)
+    if (at < 0) return
+
+    const path = decodeURIComponent(publicUrl.slice(at + marker.length).split('?')[0])
+    if (!path.startsWith(`${userId}/`)) return
+
+    const { error } = await supabase.storage.from('avatars').remove([path])
+    if (error) console.warn('[edit-profile] 前のアイコンを消せませんでした', error.message)
+  } catch (e) {
+    console.warn('[edit-profile] 前のアイコンの後片付けに失敗', e)
+  }
+}
+
 export default function EditProfile() {
   const { user, profile, refreshProfile, isUsernameAvailable } = useAuth()
   const { colors } = useTheme()
@@ -54,9 +81,12 @@ export default function EditProfile() {
     setChecking(true)
     const mine = ++seq.current
     const t = setTimeout(async () => {
-      const free = await isUsernameAvailable(username)
+      const result = await isUsernameAvailable(username)
       if (mine !== seq.current) return
-      setUsernameTaken(!free)
+      // ★ 確かめられなかった（'unknown'）を「使われている」にしないこと。
+      //   圏外で開いただけで保存ボタンが押せなくなる。
+      //   空いていなければ保存時に UNIQUE 制約が弾き、同じ文言が出る。
+      setUsernameTaken(result === 'taken')
       setChecking(false)
     }, 450)
     return () => clearTimeout(t)
@@ -127,6 +157,16 @@ export default function EditProfile() {
       }).eq('id', user.id)
 
       if (error) throw error
+
+      // ★ 保存が通ってから、置き換えた前のアイコンを消す。
+      //   パスは毎回 avatar_${Date.now()}.jpg で新しくなるので、
+      //   消さないと変えるたびに古い画像が Storage に溜まる。
+      //   avatars は public バケットなので、URL を知っていれば
+      //   前のアイコンがいつまでも開ける。
+      //   先に消すと、保存に失敗したときにアイコンだけ消える。
+      if (newPhoto && profile.photo_url && profile.photo_url !== photoUrl) {
+        await removeAvatar(user.id, profile.photo_url)
+      }
 
       await refreshProfile()
       router.back()

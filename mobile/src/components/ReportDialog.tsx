@@ -28,11 +28,25 @@ export function ReportDialog({
   const [detail, setDetail] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  /**
+   * 送信に失敗したときの案内。
+   *
+   * ★ 黙って戻らないこと。
+   *   以前はログを出して return するだけだったので、
+   *   通信が切れていても画面は何も変わらなかった。
+   *   押した人には送れたのか送れていないのか分からず、
+   *   通報が届いたつもりのまま閉じられてしまう。
+   *   通報は Guideline 1.2 の必須導線なので、
+   *   静かに落ちるのがいちばん悪い。
+   */
+  const [error, setError] = useState<string | null>(null)
 
   const submit = async () => {
     if (!user || !reason) return
     setBusy(true)
-    const { error } = await supabase.from('reports').insert({
+    setError(null)
+
+    const { error: err } = await supabase.from('reports').insert({
       reporter_id: user.id,
       target_user_id: targetUserId ?? null,
       target_post_id: targetPostId ?? null,
@@ -41,9 +55,9 @@ export function ReportDialog({
     })
     setBusy(false)
 
-    if (error) {
-      setDetail((d) => d)
-      console.warn('[report] 送信に失敗', error.message)
+    if (err) {
+      console.warn('[report] 送信に失敗', err.message)
+      setError('送信できませんでした。電波の良いところで、もう一度お試しください。')
       return
     }
     setDone(true)
@@ -119,7 +133,19 @@ export function ReportDialog({
               style={{ minHeight: 80, textAlignVertical: 'top' }}
             />
 
-            <Button title="通報を送信" onPress={submit} loading={busy} disabled={!reason} />
+            {error && (
+              <View style={[styles.error, { backgroundColor: colors.dangerSoft }]}>
+                <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
+                <Txt variant="small" tone="danger" style={{ flex: 1 }}>{error}</Txt>
+              </View>
+            )}
+
+            <Button
+              title={error ? 'もう一度送信する' : '通報を送信'}
+              onPress={submit}
+              loading={busy}
+              disabled={!reason}
+            />
           </ScrollView>
         )}
       </SafeAreaView>
@@ -136,6 +162,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   done: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl },
+  error: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+  },
   reason: {
     flexDirection: 'row',
     alignItems: 'center',

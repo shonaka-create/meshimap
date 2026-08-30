@@ -37,15 +37,31 @@ export default function PostDone() {
   }>()
 
   const [ready, setReady] = useState(false)
+  /**
+   * 最新のプロフィールを取れなかった。
+   *
+   * ★ 取れなかったことを黙って隠さない。
+   *   この画面の中身は「今回いくつ積み上がったか」なので、
+   *   投稿前の古い値で描くと、増分 0・ランクアップ無しという
+   *   嘘の結果になる。投稿自体は成功しているので、
+   *   失敗したのは取得だけだと伝えて、やり直せるようにする。
+   */
+  const [loadFailed, setLoadFailed] = useState(false)
   const before = {
     posts: Number(params.postsBefore ?? 0),
     areas: Number(params.areasBefore ?? 0),
   }
 
-  useEffect(() => {
+  const reload = useCallback(async () => {
+    setReady(false)
+    setLoadFailed(false)
     // トリガーが走ったあとの値が要るので、必ず取り直す
-    refreshProfile().finally(() => setReady(true))
+    const ok = await refreshProfile()
+    setLoadFailed(!ok)
+    setReady(true)
   }, [refreshProfile])
+
+  useEffect(() => { reload() }, [reload])
 
   const fade = useRef(new Animated.Value(0)).current
   const rise = useRef(new Animated.Value(16)).current
@@ -61,11 +77,38 @@ export default function PostDone() {
 
   const close = useCallback(() => router.replace('/(tabs)'), [router])
 
-  if (!ready || !profile) {
+  if (!ready) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <Stack.Screen options={{ headerShown: false }} />
         <Loading label="記録しています…" />
+      </View>
+    )
+  }
+
+  /**
+   * 数字を出せない状態。
+   *
+   * ★ 投稿は成功している。ここで失敗したのは集計の取得だけ。
+   *   それを言わずにローディングのまま止めると、
+   *   投稿そのものが失敗したように見えてもう一度投稿されてしまう。
+   */
+  if (loadFailed || !profile) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.retry}>
+          <Ionicons name="cloud-offline-outline" size={40} color={colors.textFaint} />
+          <Txt variant="title" style={{ textAlign: 'center' }}>投稿は保存できました</Txt>
+          <Txt variant="body" tone="muted" style={{ textAlign: 'center' }}>
+            集計の読み込みだけができませんでした。
+            もう一度投稿する必要はありません。
+          </Txt>
+          <View style={{ alignSelf: 'stretch', gap: space.md, marginTop: space.lg }}>
+            <Button title="もう一度読み込む" onPress={reload} />
+            <Button title="地図を見る" variant="secondary" onPress={close} />
+          </View>
+        </View>
       </View>
     )
   }
@@ -222,4 +265,8 @@ const styles = StyleSheet.create({
     padding: space.md, borderRadius: radius.sm,
   },
   close: { position: 'absolute', top: 56, right: space.lg },
+  retry: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    padding: space.xl, gap: space.sm,
+  },
 })

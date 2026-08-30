@@ -5,7 +5,19 @@ import {
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase, startAuthAutoRefresh } from '../lib/supabase'
 import { containsProhibitedContent, PROHIBITED_CONTENT_MESSAGE } from '../lib/moderation'
+import { removeMyStorageFiles } from '../lib/storageCleanup'
 import type { Profile } from '../lib/types'
+
+/**
+ * 退会の途中で「写真だけ消せなかった」ときのしるし。
+ *
+ * ★ 文字列で判定しているのは、画面側で文言を出し分けるため。
+ *   ここを変えるときは settings/index.tsx も一緒に直すこと。
+ */
+export const PHOTO_CLEANUP_FAILED = 'photo_cleanup_failed'
+
+/** ユーザーIDの空き確認の結果。'unknown' は確かめられなかった、の意 */
+export type UsernameCheck = 'free' | 'taken' | 'unknown'
 
 /** ユーザーID(@handle) の規則。DB側の CHECK 制約と必ず一致させること。 */
 export const USERNAME_RE = /^[a-z]{3,20}$/
@@ -30,9 +42,29 @@ interface AuthContextValue {
   }) => Promise<{ needsEmailConfirm: boolean }>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
-  deleteAccount: () => Promise<void>
-  refreshProfile: () => Promise<void>
-  isUsernameAvailable: (username: string) => Promise<boolean>
+  /**
+   * 退会する。
+   *
+   * 写真の実体を消してから RPC を叩く。消せなかった場合は
+   * PHOTO_CLEANUP_FAILED を投げて一度止まる。呼び出し元が
+   * 本人に確認して evenIfPhotosRemain を立てれば、そのまま進む。
+   */
+  deleteAccount: (opts?: { evenIfPhotosRemain?: boolean }) => Promise<void>
+  /**
+   * プロフィールを取り直す。
+   * ★ 取れたかどうかを返す。呼び出し元が「失敗した」と分かる必要がある
+   *   （投稿完了画面は、この数字を成果として見せるため）。
+   */
+  refreshProfile: () => Promise<boolean>
+  /**
+   * ユーザーIDが空いているか。
+   *
+   * ★ 「空いていない」と「確かめられなかった」を分けること。
+   *   まとめて false にすると、圏外で登録しようとした人に
+   *   「このユーザーIDは既に使われています」と出る。
+   *   何度打ち直しても同じなので、そこで詰む。
+   */
+  isUsernameAvailable: (username: string) => Promise<UsernameCheck>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -45,7 +77,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 同一ユーザーでのトークン更新で再取得が走らないよう、取得済みIDを覚えておく
   const loadedForId = useRef<string | null>(null)
 
-  const loadProfile = useCallback(async (userId: string) => {
+  /**
+   * プロフィールを取り込む。
+   *
+   * ★ 失敗を握りつぶさず、取れたかどうかを返すこと。
+   *   ここで黙って resolve すると、呼び出し元は「取れた」と
+   *   区別が付かない。投稿完了画面はそれで、投稿前の古い数字を
+   *   今回の成果として出していた（増分 0・ランクアップ無し）。
+   */
+  const loadProfile = useCallback(async (userId: string): Promise<boolean> => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -54,10 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) {
       console.warn('[auth] プロフィール取得に失敗', error.message)
-      return
+      return false
     }
     setProfile(data as Profile | null)
     loadedForId.current = userId
+    return true
   }, [])
 
   useEffect(() => {
@@ -98,16 +139,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [loadProfile])
 
-  const isUsernameAvailable = useCallback(async (username: string) => {
-    const { data, error } = await supabase.rpc('is_username_available', {
-      p_username: username,
-    })
-    if (error) {
-      console.warn('[auth] ユーザーID確認に失敗', error.message)
-      return false
-    }
-    return data === true
-  }, [])
+  const isUsernameAvailable = useCallback<AuthContextValue['isUsernameAvailable']>(
+    async (username) => {
+      const { data, error } = await supabase.rpc('is_username_available', {
+        p_username: username,
+      })
+      if (error) {
+        console.warn('[auth] ユーザーID確認に失敗', error.message)
+        return 'unknown'
+      }
+      return data === true ? 'free' : 'taken'
+    },
+    []
+  )
 
   const signUp = useCallback<AuthContextValue['signUp']>(
     async ({ email, password, username, displayName }) => {
@@ -125,8 +169,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 事前チェック。ここを通っても同時登録で衝突しうるので、
-      // 最終的な一意性は DB の UNIQUE 制約が保証する。
-      if (!(await isUsernameAvailable(normalized))) {
+      // 最終的な一意性は DB の UNIQUE 制約が保証する
+      // （profiles_username_key / 0001）。
+      //
+      // ★ 確かめられなかった場合は止めないこと。
+      //   ここで止めると、通信が悪いだけで登録できなくなる。
+      //   空いていなければ handle_new_user()（0005）の INSERT が
+      //   UNIQUE 制約で落ち、サインアップごと失敗する。
+      //   ＝勝手に別のIDが割り当てられることはない。
+      //   （0001 版には衝突時に採番し直す WHILE ループがあったが、
+      //     0005 で置き換えたときに外れている）
+      const availability = await isUsernameAvailable(normalized)
+      if (availability === 'taken') {
         throw new Error('このユーザーIDは既に使われています')
       }
 
@@ -159,17 +213,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadedForId.current = null
   }, [])
 
-  const deleteAccount = useCallback(async () => {
-    const { error } = await supabase.rpc('delete_my_account')
-    if (error) throw error
-    await supabase.auth.signOut()
-    setProfile(null)
-    loadedForId.current = null
-  }, [])
+  const deleteAccount = useCallback<AuthContextValue['deleteAccount']>(
+    async ({ evenIfPhotosRemain = false } = {}) => {
+      // ★ 写真の実体を先に消すこと。
+      //   delete_my_account() は auth.users を消すだけで、
+      //   Storage のオブジェクトは残る（public バケットなので
+      //   URL を控えていれば退会後も開ける）。
+      //   そして先にアカウントを消すとトークンが無効になり、
+      //   Storage のポリシーで弾かれて二度と消せなくなる。
+      //
+      // ★ 消せなかったときに黙って進めないこと。
+      //   進めた瞬間に、その写真は誰にも消せない公開ファイルになる。
+      //   一度止めて本人に伝え、それでも退会するなら通す
+      //   （消せないから退会できない、では Guideline 5.1.1(v) を満たさない）。
+      const uid = session?.user?.id
+      if (uid) {
+        const { failed } = await removeMyStorageFiles(uid)
+        if (failed.length > 0 && !evenIfPhotosRemain) {
+          console.warn('[auth] 退会時に消せなかったバケット', failed.join(', '))
+          throw new Error(PHOTO_CLEANUP_FAILED)
+        }
+      }
+
+      const { error } = await supabase.rpc('delete_my_account')
+      if (error) throw error
+      await supabase.auth.signOut()
+      setProfile(null)
+      loadedForId.current = null
+    },
+    [session?.user?.id]
+  )
 
   const refreshProfile = useCallback(async () => {
     const uid = session?.user?.id
-    if (uid) await loadProfile(uid)
+    if (!uid) return false
+    return loadProfile(uid)
   }, [session?.user?.id, loadProfile])
 
   const value = useMemo<AuthContextValue>(
@@ -206,6 +284,12 @@ export function toJapaneseAuthError(err: unknown): string {
   if (msg.includes('Email not confirmed')) return 'メールアドレスの確認が済んでいません。受信箱を確認してください'
   if (msg.includes('profiles_username_key') || msg.includes('duplicate key'))
     return 'このユーザーIDは既に使われています'
+  // ★ Supabase は、サインアップのトリガーが落ちたことを
+  //   この一文にまとめて返す。制約名までは降りてこない。
+  //   ここに来る現実的な原因は username の重複なので、そう案内する
+  //   （空き確認を通せなかったまま登録した人がここに来る）。
+  if (msg.includes('Database error saving new user'))
+    return 'アカウントを作れませんでした。ユーザーIDが既に使われている可能性があります。別のIDでお試しください'
   if (msg.includes('profiles_username_format'))
     return 'ユーザーIDは小文字のアルファベット3〜20文字にしてください'
   if (msg.includes('rate limit') || msg.includes('Too many'))

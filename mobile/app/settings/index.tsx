@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-na
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../src/lib/supabase'
-import { useAuth } from '../../src/hooks/useAuth'
+import { PHOTO_CLEANUP_FAILED, useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius } from '../../src/theme'
 import { Txt } from '../../src/components/ui'
 
@@ -41,9 +41,25 @@ export default function Settings() {
     } else {
       await refreshProfile()
       if (next) {
-        // 非公開→公開にすると、溜まっていた承認待ちは意味を失うので自動承認する
-        await supabase.from('follows').update({ status: 'accepted' })
+        // 非公開→公開にすると、溜まっていた承認待ちは意味を失うので自動承認する。
+        //
+        // ★ ここの失敗を握りつぶさないこと。
+        //   握りつぶすと「アカウントは公開になったのに、
+        //   申請だけ承認待ちのまま残る」状態になり、
+        //   公開したはずの相手にいつまでも見えない。
+        const { error: acceptErr } = await supabase.from('follows')
+          .update({ status: 'accepted' })
           .eq('following_id', user.id).eq('status', 'pending')
+
+        if (acceptErr) {
+          console.warn('[settings] 承認待ちの自動承認に失敗', acceptErr.message)
+          Alert.alert(
+            '公開に切り替えました',
+            '承認待ちのフォローリクエストだけ、自動承認できませんでした。'
+              + '\n「フォローリクエスト」から手で承認してください。',
+            [{ text: '閉じる', style: 'cancel' }]
+          )
+        }
       }
     }
     setSavingPublic(false)
@@ -69,6 +85,36 @@ export default function Settings() {
                   try {
                     await deleteAccount()
                   } catch (e) {
+                    // 写真だけ消せなかった場合。
+                    //
+                    // ★ 勝手に進めないこと。ここで退会まで通すと、
+                    //   その写真は公開バケットに残ったまま、
+                    //   本人にも二度と消せなくなる（トークンが無効になる）。
+                    //   かといって退会させないのも駄目なので、選んでもらう。
+                    if ((e as Error).message === PHOTO_CLEANUP_FAILED) {
+                      Alert.alert(
+                        '写真を削除できませんでした',
+                        '通信の状態が悪い可能性があります。'
+                          + '\n電波の良いところでやり直すと、写真も一緒に削除できます。'
+                          + '\n\nこのまま削除すると、アカウントと投稿は消えますが、'
+                          + '写真のファイルだけがサーバーに残り、あとから消せなくなります。',
+                        [
+                          { text: 'やめる', style: 'cancel' },
+                          {
+                            text: '写真を残して削除',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await deleteAccount({ evenIfPhotosRemain: true })
+                              } catch (e2) {
+                                Alert.alert('削除に失敗しました', (e2 as Error).message)
+                              }
+                            },
+                          },
+                        ]
+                      )
+                      return
+                    }
                     Alert.alert('削除に失敗しました', (e as Error).message)
                   }
                 },

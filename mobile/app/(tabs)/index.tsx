@@ -13,6 +13,7 @@ import { useLocation } from '../../src/hooks/useLocation'
 import { MAP_PROVIDER } from '../../src/lib/mapProvider'
 import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
+import { pgValue } from '../../src/lib/filters'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import {
@@ -93,10 +94,52 @@ export default function HomeMap() {
    * 「階層を降りた直後に、その移動自体が引く操作と判定されて戻る」ことが起きる。
    */
   const suppressUntil = useRef(0)
-  const flyTo = useCallback((region: Region, ms = 600) => {
+
+  /**
+   * 地図が動かせる状態になったか。
+   *
+   * ★ これが要る理由。
+   *   iOS の animateToRegion は、地図がまだ組み上がっていないうちに
+   *   呼んでも**何も起きずに黙って捨てられる**。エラーも出ない。
+   *
+   *   起動直後の寄せは、端末が覚えている位置（lastKnown）を使うので
+   *   ほぼ即座に返ってくる。つまり地図が組み上がるより先に
+   *   animateToRegion を呼んでいて、その1回が丸ごと消えていた。
+   *   そのあとの実測（locate）が返れば結果的に寄るが、
+   *   屋内などで実測が遅い・失敗すると、日本全体が映ったままになる。
+   *   「現在地が読み込めないときがある」の正体はこれ。
+   *
+   *   準備できるまでは行き先を持っておいて、できた瞬間に動かす。
+   */
+  const mapReady = useRef(false)
+  const pendingCamera = useRef<{ region: Region; ms: number } | null>(null)
+
+  const moveCamera = useCallback((region: Region, ms: number) => {
     suppressUntil.current = Date.now() + ms + 400
     mapRef.current?.animateToRegion(region, ms)
   }, [])
+
+  const flyTo = useCallback((region: Region, ms = 600) => {
+    if (!mapReady.current) {
+      // 行き先だけ覚えておく。複数来たら最後のものが正しい
+      pendingCamera.current = { region, ms }
+      return
+    }
+    moveCamera(region, ms)
+  }, [moveCamera])
+
+  const onMapReady = useCallback(() => {
+    mapReady.current = true
+
+    const pending = pendingCamera.current
+    pendingCamera.current = null
+    if (!pending) return
+
+    // ★ onMapReady の中で即座に動かさないこと。
+    //   その時点ではまだ最初の描画が終わっておらず、
+    //   iOS では取りこぼすことがある。1フレーム待ってから動かす。
+    requestAnimationFrame(() => moveCamera(pending.region, pending.ms))
+  }, [moveCamera])
 
   /**
    * いまのカメラの高さ（latitudeDelta）。
@@ -206,7 +249,7 @@ export default function HomeMap() {
         .from('posts')
         .select(POST_SELECT)
         .eq('prefecture', prefecture)
-        .or(`area.eq.${area},and(area.is.null,city.eq.${area})`)
+        .or(`area.eq.${pgValue(area)},and(area.is.null,city.eq.${pgValue(area)})`)
 
       const { data, error } = await q
         .order('created_at', { ascending: false })
@@ -337,6 +380,11 @@ export default function HomeMap() {
 
     if (!c) {
       // 何も起きないと壊れて見える。断られているなら、そう言う。
+      //
+      // ★ 断られていないのに取れなかった場合も、黙って戻らないこと。
+      //   地下や屋内では実測が時間内に返らないことがあり、
+      //   そのときここに来る。何も言わないと、押しても押しても
+      //   反応しないボタンにしか見えない。
       if (permission === 'denied') {
         Alert.alert(
           '位置情報が使えません',
@@ -345,6 +393,13 @@ export default function HomeMap() {
             { text: '閉じる', style: 'cancel' },
             { text: '設定を開く', onPress: () => Linking.openSettings() },
           ]
+        )
+      } else {
+        Alert.alert(
+          '現在地を取れませんでした',
+          '地下や建物の中では位置が取れないことがあります。'
+            + '\n空の見える場所で、もう一度お試しください。',
+          [{ text: '閉じる', style: 'cancel' }]
         )
       }
       return
@@ -382,6 +437,7 @@ export default function HomeMap() {
         toolbarEnabled={false}
         customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
         onPress={onMapPress}
+        onMapReady={onMapReady}
         onRegionChangeComplete={onRegionChangeComplete}
       >
         {showRegionBubbles &&

@@ -15,6 +15,7 @@ import { RankAvatar } from '../../src/components/RankAvatar'
 import type { Post, Profile } from '../../src/lib/types'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { formatImpressions, isFeatured } from '../../src/lib/impressions'
+import { pgContains } from '../../src/lib/filters'
 import { rankOf } from '../../src/lib/rank'
 
 type Tab = 'posts' | 'accounts'
@@ -71,7 +72,7 @@ export default function Search() {
       const accountsReq = supabase
         .from('profiles')
         .select('*')
-        .or(`display_name.ilike.%${q}%,username.ilike.%${q}%`)
+        .or(`display_name.ilike.${pgContains(q)},username.ilike.${pgContains(q)}`)
         .order('followers_count', { ascending: false })
         .limit(40)
 
@@ -81,17 +82,24 @@ export default function Search() {
         ? supabase.from('posts').select(POST_SELECT).contains('hashtags', [tag])
             .order('created_at', { ascending: false }).limit(60)
         : supabase.from('posts').select(POST_SELECT)
-            .or(`location_name.ilike.%${q}%,caption.ilike.%${q}%`)
+            .or(`location_name.ilike.${pgContains(q)},caption.ilike.${pgContains(q)}`)
             .order('created_at', { ascending: false }).limit(60)
 
       const [acc, pst] = await Promise.all([accountsReq, postsReq])
       if (mine !== seq.current) return // 古い結果は破棄
 
-      if (acc.error) console.warn('[search] アカウント検索に失敗', acc.error.message)
-      else setAccounts((acc.data ?? []) as Profile[])
+      // ★ 失敗したら前の語の結果を残さないこと。
+      //   残すと、打ち替えたのに前の結果が並んだままになり、
+      //   新しい語で本当にそれが出たように見える。
+      if (acc.error) {
+        console.warn('[search] アカウント検索に失敗', acc.error.message)
+        setAccounts([])
+      } else setAccounts((acc.data ?? []) as Profile[])
 
-      if (pst.error) console.warn('[search] 投稿検索に失敗', pst.error.message)
-      else setPostResults((pst.data ?? []).map(toPost))
+      if (pst.error) {
+        console.warn('[search] 投稿検索に失敗', pst.error.message)
+        setPostResults([])
+      } else setPostResults((pst.data ?? []).map(toPost))
 
       setSearching(false)
     }, 350)

@@ -44,6 +44,8 @@ export function ProfileView({ username, selfId }: Props) {
   const [busyFollow, setBusyFollow] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  /** 取得そのものが失敗した。「見つからない」とは別に持つ */
+  const [loadError, setLoadError] = useState(false)
   const [pickingEmoji, setPickingEmoji] = useState(false)
   /** 今月の成績。月初にゼロへ戻るので、通算のランクとは別に持つ */
   const [standing, setStanding] = useState<MonthlyStanding | null>(null)
@@ -59,19 +61,30 @@ export function ProfileView({ username, selfId }: Props) {
       : await q.eq('username', username!).maybeSingle()
 
     if (error) {
+      // ★ 通信の失敗を「見つからない」と混ぜないこと。
+      //   混ぜると、圏外で開いただけで「このアカウントは表示できません」と
+      //   出る。相手が消えたのか電波が無いのかは、見ている人には大違いで、
+      //   前者だと思えばもう二度と開きに来ない。
       console.warn('[profile] 取得に失敗', error.message)
+      setLoadError(true)
       setLoading(false)
       return
     }
     if (!p) {
       // ブロックされている場合も RLS で 0 件になるため、区別せず「見つからない」扱い
       setNotFound(true)
+      setLoadError(false)
       setLoading(false)
       return
     }
 
     const prof = p as Profile
     setProfile(prof)
+    // ★ 取れたら必ず戻すこと。戻さないと、一度でも
+    //   見つからなかった画面は、引っ張って更新して成功しても
+    //   「表示できません」のままになる。
+    setNotFound(false)
+    setLoadError(false)
 
     // フォロー状態（他人のページのみ）
     if (user && prof.id !== user.id) {
@@ -231,6 +244,29 @@ export function ProfileView({ username, selfId }: Props) {
   /* ─────────────────────────  描画  ───────────────────────── */
 
   if (loading) return <Loading />
+
+  // 取得に失敗しただけ。相手が消えたわけではないので、そう言ってやり直させる。
+  //
+  // ★ 既に中身を出しているとき（loadError && profile）は、この画面に
+  //   切り替えない。引っ張って更新しただけで前の内容が消えるほうが困る。
+  //   その場合は更新のくるくるが止まって、前の内容がそのまま残る。
+  if (loadError && !profile) {
+    return (
+      <EmptyState
+        emoji="📡"
+        title="読み込めませんでした"
+        body="通信の状態を確かめて、もう一度お試しください。"
+        action={
+          <Button
+            title="もう一度読み込む"
+            variant="secondary"
+            loading={refreshing}
+            onPress={onRefresh}
+          />
+        }
+      />
+    )
+  }
 
   if (notFound || !profile) {
     return (
