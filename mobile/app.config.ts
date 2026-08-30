@@ -10,7 +10,7 @@ const config: ExpoConfig = {
   slug: 'meshimap',
   // Expo アカウントを2つ持っているので、どちらのものかを明示しておく
   owner: 'shonakacreate',
-  version: '1.0.0',
+  version: '1.0.1',
   orientation: 'portrait',
   scheme: 'meshimap',
   userInterfaceStyle: 'automatic',
@@ -23,15 +23,35 @@ const config: ExpoConfig = {
     backgroundColor: '#FBF8F4',
   },
 
+  /**
+   * App Store の商品ページに出る「言語」欄は、ASC の入力ではなく
+   * バイナリに入っている .lproj で決まる。ここで日本語を宣言しないと
+   * 既定の英語のまま「EN English」と表示される。
+   * CFBundleDevelopmentRegion（下の infoPlist）と対で効く。
+   */
+  locales: {
+    ja: './locales/ja.json',
+  },
+
   ios: {
     supportsTablet: false,
     bundleIdentifier: 'jp.yournist.meshimap',
+    /**
+     * ★ production ビルドでは、この値は使われない。
+     *   eas.json が appVersionSource: "remote" ＋ autoIncrement: true なので、
+     *   ビルド番号は EAS のサーバー側が持っていて、ビルドのたびに +1 される。
+     *   ここを手で上げる必要は無い（上げても反映されない）。
+     *   提出ごとに上げるのは、上の version（表示用）のほう。
+     */
     buildNumber: '1',
     config: {
       // iOS の react-native-maps が使う Google Maps SDK キー
       googleMapsApiKey: process.env.GOOGLE_MAPS_IOS_KEY,
     },
     infoPlist: {
+      // 既定の言語。これを en のままにすると App Store の言語欄に
+      // 英語が併記される。locales の ja と対で設定すること。
+      CFBundleDevelopmentRegion: 'ja',
       // 位置情報: 「現在地を表示」「現在地に戻る」ボタンのため
       NSLocationWhenInUseUsageDescription:
         '近くのお店を地図に表示し、現在地に戻るボタンを使うために位置情報を利用します。',
