@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
-    "lint": "expo lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check:ios": "node scripts/check-ios-config.mjs"
   },
@@ -45,6 +45,8 @@
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^57.0.2",
     "typescript": "~5.9.2"
   }
 }

@@ -95,6 +95,16 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # ★ mobile/ は長らく lint されていなかった。
+      #   ルートの eslint.config.mjs が mobile/** を除外していて、
+      #   mobile 側には設定ファイルが無かったため、どちらからも漏れていた。
+      #   そのせいで「早期リターンより後ろで useCallback を呼ぶ」という
+      #   Rules of Hooks 違反が素通りし、プロフィールを開くと必ず落ちる
+      #   ビルドを App Store Connect まで上げてしまった（v1.0.2）。
+      #   型チェックもバンドルもこれを捕まえられない。lint だけが捕まえる。
+      - name: Lint
+        run: npm run lint
+
       # 型チェックは Babel も Metro も通らないため、バンドルできない状態を
       # 検出できない。実際 babel-preset-expo が devDependencies から抜けていて、
       # CI は緑のまま「実機で起動すると必ず落ちる」状態が続いていた。

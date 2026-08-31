@@ -31,7 +31,7 @@ interface Props {
 }
 
 export function ProfileView({ username, selfId }: Props) {
-  const { user, profile: myProfile, refreshProfile } = useAuth()
+  const { user, refreshProfile } = useAuth()
   const { colors } = useTheme()
   const router = useRouter()
   const { width } = useWindowDimensions()
@@ -245,48 +245,16 @@ export function ProfileView({ username, selfId }: Props) {
     )
   }, [user, profile, router])
 
-  /* ─────────────────────────  描画  ───────────────────────── */
-
-  if (loading) return <Loading />
-
-  // 取得に失敗しただけ。相手が消えたわけではないので、そう言ってやり直させる。
-  //
-  // ★ 既に中身を出しているとき（loadError && profile）は、この画面に
-  //   切り替えない。引っ張って更新しただけで前の内容が消えるほうが困る。
-  //   その場合は更新のくるくるが止まって、前の内容がそのまま残る。
-  if (loadError && !profile) {
-    return (
-      <EmptyState
-        emoji="📡"
-        title="読み込めませんでした"
-        body="通信の状態を確かめて、もう一度お試しください。"
-        action={
-          <Button
-            title="もう一度読み込む"
-            variant="secondary"
-            loading={refreshing}
-            onPress={onRefresh}
-          />
-        }
-      />
-    )
-  }
-
-  if (notFound || !profile) {
-    return (
-      <EmptyState
-        emoji="🤔"
-        title="このアカウントは表示できません"
-        body="削除されたか、非公開設定またはブロックにより閲覧できません。"
-      />
-    )
-  }
-
-  // 非公開アカウントで、自分でもフォロワーでもない場合は中身を隠す
-  const locked = !profile.is_public && !isOwn && followStatus !== 'accepted'
-
-  const rank = rankOf(profile.posts_count, profile.areas_count)
-
+  /* ── アイコンの入れ替え ─────────────────────────
+   * ★ ここは早期リターン（loading / notFound）より前に置くこと。
+   *   後ろに置くと、読み込み中はこの useCallback が呼ばれず、
+   *   読み込みが終わった回だけフックが3つ増える。React は
+   *   フックを呼ばれた順番で数えているので、数が変わった時点で
+   *   「Rendered more hooks than during the previous render」で落ちる。
+   *   プロフィールを開くたびに必ずクラッシュしていた原因がこれ。
+   *
+   *   profile が null の間も評価されるので、中では profile?. で触ること。
+   */
   /** 写真を選び直す。保存が通ってから前の画像を消す */
   const replacePhoto = useCallback(async () => {
     if (!user || savingPhoto) return
@@ -378,6 +346,49 @@ export function ProfileView({ username, selfId }: Props) {
 
     Alert.alert('アイコンを変える', undefined, options)
   }, [user, profile?.photo_url, replacePhoto, removePhoto])
+
+
+  /* ─────────────────────────  描画  ───────────────────────── */
+
+  if (loading) return <Loading />
+
+  // 取得に失敗しただけ。相手が消えたわけではないので、そう言ってやり直させる。
+  //
+  // ★ 既に中身を出しているとき（loadError && profile）は、この画面に
+  //   切り替えない。引っ張って更新しただけで前の内容が消えるほうが困る。
+  //   その場合は更新のくるくるが止まって、前の内容がそのまま残る。
+  if (loadError && !profile) {
+    return (
+      <EmptyState
+        emoji="📡"
+        title="読み込めませんでした"
+        body="通信の状態を確かめて、もう一度お試しください。"
+        action={
+          <Button
+            title="もう一度読み込む"
+            variant="secondary"
+            loading={refreshing}
+            onPress={onRefresh}
+          />
+        }
+      />
+    )
+  }
+
+  if (notFound || !profile) {
+    return (
+      <EmptyState
+        emoji="🤔"
+        title="このアカウントは表示できません"
+        body="削除されたか、非公開設定またはブロックにより閲覧できません。"
+      />
+    )
+  }
+
+  // 非公開アカウントで、自分でもフォロワーでもない場合は中身を隠す
+  const locked = !profile.is_public && !isOwn && followStatus !== 'accepted'
+
+  const rank = rankOf(profile.posts_count, profile.areas_count)
 
   /** 絵柄の保存。未解放のものはDBのトリガーが NULL に戻すので、結果を読み直す。 */
   const saveEmoji = async (emoji: string | null) => {
