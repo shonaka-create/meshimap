@@ -35,6 +35,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # ★ 画面を実際に描くテスト。
+      #   型チェックも lint も「開いたら落ちる」は捕まえられない。
+      #   ここでは本物の React で画面を組み立てて、読み込み中 →
+      #   読み込み完了 まで通す。v1.0.2 のクラッシュは完了した回だけ
+      #   フックが増えて起きたので、その両方を通さないと再現しない。
+      - name: Render tests
+        run: npm test
+
       - name: Type check
         run: npm run typecheck
 
