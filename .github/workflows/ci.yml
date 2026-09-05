@@ -35,14 +35,6 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # ★ 画面を実際に描くテスト。
-      #   型チェックも lint も「開いたら落ちる」は捕まえられない。
-      #   ここでは本物の React で画面を組み立てて、読み込み中 →
-      #   読み込み完了 まで通す。v1.0.2 のクラッシュは完了した回だけ
-      #   フックが増えて起きたので、その両方を通さないと再現しない。
-      - name: Render tests
-        run: npm test
-
       - name: Type check
         run: npm run typecheck
 
@@ -112,6 +104,19 @@ jobs:
       #   型チェックもバンドルもこれを捕まえられない。lint だけが捕まえる。
       - name: Lint
         run: npm run lint
+
+      # ★ 画面を実際に描くテスト。
+      #   型チェックも lint も「開いたら落ちる」は捕まえられない。
+      #   ここでは本物の React で画面を組み立てて、読み込み中 →
+      #   読み込み完了 まで通す。v1.0.2 のクラッシュは完了した回だけ
+      #   フックが増えて起きたので、その両方を通さないと再現しない。
+      #
+      #   ★ このジョブに置くこと。テストは mobile/ にあり、
+      #     jest も mobile/package.json にしかない。
+      #     ルートの build ジョブに置くと、ルートには test スクリプトが
+      #     無いので「Missing script: test」で必ず落ちる（実際落ちた）。
+      - name: Render tests
+        run: npm test
 
       # 型チェックは Babel も Metro も通らないため、バンドルできない状態を
       # 検出できない。実際 babel-preset-expo が devDependencies から抜けていて、
