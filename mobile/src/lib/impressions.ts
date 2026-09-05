@@ -77,8 +77,17 @@ export async function recordImpression(postId: string): Promise<number | null> {
   return typeof data === 'number' ? data : null
 }
 
-/** 表示回数の丸め。4桁を超えたら「1.2万」にして桁で圧迫しない */
-export function formatImpressions(n: number): string {
-  if (n < 10_000) return n.toLocaleString('ja-JP')
-  return `${(n / 10_000).toFixed(1).replace(/\.0$/, '')}万`
+/**
+ * 表示回数の丸め。4桁を超えたら「1.2万」にして桁で圧迫しない。
+ *
+ * ★ null / undefined を受け取れるようにしてあること。
+ *   呼び出し元の多くは lib/posts.ts の toPost を通っていて
+ *   `impressions_count ?? 0` で守られているが、
+ *   ランキング画面だけは RPC の戻り値をそのまま渡している。
+ *   守りが片側にしか無い状態は、いずれ必ず崩れるほうに転ぶ。
+ */
+export function formatImpressions(n: number | null | undefined): string {
+  const v = n ?? 0
+  if (v < 10_000) return v.toLocaleString('ja-JP')
+  return `${(v / 10_000).toFixed(1).replace(/\.0$/, '')}万`
 }

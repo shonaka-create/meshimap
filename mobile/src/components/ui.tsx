@@ -318,10 +318,23 @@ export function Loading({ label }: { label?: string }) {
   )
 }
 
-/** 統計値（投稿数・フォロワー数など）の縦並び表示 */
+/**
+ * 統計値（投稿数・フォロワー数など）の縦並び表示。
+ *
+ * ★ value は number と宣言しているが、null / undefined を疑うこと。
+ *   数を持つ列は schema.sql で DEFAULT 0 が付いているだけで
+ *   NOT NULL ではない（followers_count / following_count / posts_count）。
+ *   DEFAULT は INSERT で値を省いたときにしか効かないので、
+ *   一度でも NULL が入ると `NULL + 1 = NULL` で二度と戻らない。
+ *   そのプロフィールは、開くたびに必ずここで落ちることになる
+ *   （toLocaleString は null に対して TypeError を投げる）。
+ *
+ *   型を信じて素通しするより、0 と見なして画面を出したほうがいい。
+ *   数字が1つ狂うのと、画面が開かないのとでは重さが違う。
+ */
 export function Stat({
   value, label, onPress,
-}: { value: number; label: string; onPress?: () => void }) {
+}: { value: number | null | undefined; label: string; onPress?: () => void }) {
   const { colors } = useTheme()
   return (
     <Pressable
@@ -331,7 +344,7 @@ export function Stat({
       style={({ pressed }) => [{ alignItems: 'center', opacity: pressed && onPress ? 0.6 : 1 }]}
     >
       <Text style={[type.title as TextStyle, { color: colors.text, fontSize: 20, lineHeight: 28 }]}>
-        {value.toLocaleString('ja-JP')}
+        {(value ?? 0).toLocaleString('ja-JP')}
       </Text>
       <Txt variant="caption" tone="faint">{label}</Txt>
     </Pressable>

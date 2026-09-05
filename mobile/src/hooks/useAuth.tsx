@@ -108,15 +108,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // バンドル評価中にネイティブを叩くことになり、起動が不安定になる。
     const stopAutoRefresh = startAuthAutoRefresh()
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return
-      setSession(data.session)
-      if (data.session?.user) {
-        loadProfile(data.session.user.id).finally(() => active && setLoading(false))
-      } else {
+    // ★ 必ず catch を付けること。そして、どの経路でも setLoading(false) に着くこと。
+    //
+    //   getSession() は拒否しうる。保存先は SecureStore（Keychain）で、
+    //   端末のバックアップ復元やOS移行の直後は復号に失敗することがある。
+    //   GoTrue 側はこの拒否を握り潰さず、そのまま投げてくる。
+    //
+    //   以前は catch が無く、setLoading(false) が then の中にしか無かった。
+    //   拒否されると then が丸ごと飛ばされ、loading が true のまま固定される。
+    //   _layout.tsx は loading のあいだ AppLoading を出すので、
+    //   その端末では **再インストールするまで起動画面から進めない**。
+    //   しかも catch が無いので、原因がログにも残らなかった。
+    //
+    //   読めなかったときは「ログインしていない」として扱う。
+    //   ログイン画面が出れば、入り直して復帰できる。
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!active) return
+        setSession(data.session)
+        if (data.session?.user) {
+          loadProfile(data.session.user.id).finally(() => active && setLoading(false))
+        } else {
+          setLoading(false)
+        }
+      })
+      .catch((e) => {
+        console.warn('[auth] 保存されたセッションを読めませんでした', e)
+        if (!active) return
+        setSession(null)
         setLoading(false)
-      }
-    })
+      })
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       if (!active) return

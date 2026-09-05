@@ -100,8 +100,22 @@ async function geocodeViaServer(
 
   // ルートはログイン済みの利用者にだけ答える。1回ごとに課金される口なので、
   // 誰でも叩けるようにはしていない。
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
+  //
+  // ★ ここも try で囲むこと。下の try の外に置かないこと。
+  //   getSession() は拒否しうる（保存先が Keychain で、端末の復元直後は
+  //   復号に失敗することがある）。この関数は「どの失敗も {null,null} に
+  //   畳んで返す」約束で書かれていて、呼び出し側の投稿処理は
+  //   その約束の上に「判定できなくても投稿は通す」と組まれている。
+  //   ここだけ例外が素通りすると、本来なら最寄りの都道府県で
+  //   続行できたはずの投稿が、丸ごと失敗していた。
+  let token: string | undefined
+  try {
+    const { data } = await supabase.auth.getSession()
+    token = data.session?.access_token
+  } catch (e) {
+    console.warn('[geocode] セッションを読めませんでした', e)
+    return none
+  }
   if (!token) return none
 
   // AbortSignal.timeout は Hermes に無いことがあるので自前で組む。

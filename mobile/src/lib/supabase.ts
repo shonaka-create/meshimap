@@ -26,7 +26,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
  * 1項目 2048 バイト制限がある。Supabase のセッションは JWT を含み
  * これを超えることがあるため、溢れたら分割して保存する。
  */
-const CHUNK_LIMIT = 1800
+/**
+ * 1項目に入れる文字数。
+ *
+ * ★ SecureStore の上限 2048 は「バイト」だが、ここで数えるのは「文字」。
+ *   セッションJSONには表示名がそのまま入る（user_metadata）ので、
+ *   日本語が混ざる。日本語は UTF-8 で1文字3バイトなので、
+ *   1800文字のところに日本語が多く来ると 2048 バイトを超えうる。
+ *   最悪でも全部が日本語（3倍）になると考えて、3で割った値にしておく。
+ *   分割数が増えるだけで、正しさのほうが大事。
+ */
+const CHUNK_LIMIT = 600
 
 const secureAdapter = {
   getItem: async (key: string) => {
@@ -34,7 +44,15 @@ const secureAdapter = {
     if (head === null) return null
     if (!head.startsWith('__chunks__:')) return head
 
+    // ★ NaN を素通りさせないこと。
+    //   NaN だとループが0回で回り、空文字を返す。呼び出し側は
+    //   「セッションが無い」と解釈するので、原因の分からないログアウトになる。
     const count = Number(head.slice('__chunks__:'.length))
+    if (!Number.isInteger(count) || count <= 0) {
+      console.warn('[auth] 保存されたセッションの分割数が読めません', head)
+      return null
+    }
+
     let out = ''
     for (let i = 0; i < count; i++) {
       const part = await SecureStore.getItemAsync(`${key}__${i}`)
@@ -44,19 +62,53 @@ const secureAdapter = {
     return out
   },
 
+  /**
+   * ★ 先に消してから書かないこと。最後に head を書いて確定させること。
+   *
+   *   以前は removeItem で全部消してから書き直していた。
+   *   消した後の書き込みが1つでも失敗すると（Keychain が一時的に
+   *   使えない、その瞬間にプロセスが落ちる）、**古いセッションも
+   *   新しいセッションも無い**状態になり、次の起動でログアウトされる。
+   *   この経路はトークン更新のたびに通るので、
+   *   「久しぶりに開くとログアウトされている」の残っていた原因がこれ。
+   *
+   *   本体（チャンク）を先に書き、いちばん最後に head を書く。
+   *   head が指し示すまで、新しい中身は使われない。
+   *   途中で失敗しても head は古いままなので、古いセッションで動き続ける。
+   *   余った古いチャンクは、確定した後に掃除する。
+   */
   setItem: async (key: string, value: string) => {
-    // 前回の分割データが残っていると混ざるので先に掃除する
-    await secureAdapter.removeItem(key)
+    // 掃除の対象を知るために、書く前の状態を控えておく
+    const prevHead = await SecureStore.getItemAsync(key)
+    const prevCount = prevHead?.startsWith('__chunks__:')
+      ? Number(prevHead.slice('__chunks__:'.length))
+      : 0
+
+    /** 確定後に残った古いチャンクを消す。失敗しても実害は無いので握り潰す */
+    const sweep = async (from: number) => {
+      for (let i = from; i < prevCount; i++) {
+        try {
+          await SecureStore.deleteItemAsync(`${key}__${i}`)
+        } catch {
+          // 残っても、head が指していないので読まれない
+        }
+      }
+    }
 
     if (value.length <= CHUNK_LIMIT) {
+      // head をそのまま上書きするので、この1回で確定する
       await SecureStore.setItemAsync(key, value)
+      await sweep(0)
       return
     }
+
     const count = Math.ceil(value.length / CHUNK_LIMIT)
     for (let i = 0; i < count; i++) {
       await SecureStore.setItemAsync(`${key}__${i}`, value.slice(i * CHUNK_LIMIT, (i + 1) * CHUNK_LIMIT))
     }
+    // ここで確定
     await SecureStore.setItemAsync(key, `__chunks__:${count}`)
+    await sweep(count)
   },
 
   removeItem: async (key: string) => {
