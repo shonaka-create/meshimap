@@ -328,6 +328,13 @@ export function ProfileView({ username, selfId }: Props) {
    * これまでは絵柄の選択だけが開き、写真を変えるには
    * 設定 → プロフィールを編集 → 写真を変更、と3階層潜る必要があった。
    * アイコンを押したら、そこで写真も絵柄も変えられるのが素直。
+   *
+   * ★ 「プロフィールを編集」もここに入れてある。
+   *   以前は写真の下に同じ名前のボタンを1つ並べていたが、
+   *   自分のプロフィールで押す場所が「アイコン」と「そのすぐ下のボタン」の
+   *   2箇所に割れていて、どちらが何を変えるのか見て分からなかった。
+   *   自分に関する変更の入口はアイコン1箇所に寄せて、ボタンは外した。
+   *   （名前・ユーザーID・自己紹介は settings/edit-profile が持つ）
    */
   const chooseAvatarAction = useCallback(() => {
     if (!user) return
@@ -342,10 +349,17 @@ export function ProfileView({ username, selfId }: Props) {
     if (profile?.photo_url) {
       options.push({ text: '写真を外す', style: 'destructive', onPress: () => void removePhoto() })
     }
+
+    // 名前と自己紹介。アイコンの変更とは別の画面へ行くので、
+    // 写真まわりの選択肢と混ざらないよう最後に置く。
+    options.push({
+      text: 'プロフィールを編集（名前・自己紹介）',
+      onPress: () => router.push('/settings/edit-profile'),
+    })
     options.push({ text: 'キャンセル', style: 'cancel' })
 
-    Alert.alert('アイコンを変える', undefined, options)
-  }, [user, profile?.photo_url, replacePhoto, removePhoto])
+    Alert.alert('プロフィール', undefined, options)
+  }, [user, profile?.photo_url, replacePhoto, removePhoto, router])
 
 
   /* ─────────────────────────  描画  ───────────────────────── */
@@ -440,7 +454,7 @@ export function ProfileView({ username, selfId }: Props) {
           onPress={isOwn ? chooseAvatarAction : undefined}
           disabled={!isOwn || savingPhoto}
           accessibilityRole={isOwn ? 'button' : undefined}
-          accessibilityLabel={isOwn ? 'アイコンを変える' : undefined}
+          accessibilityLabel={isOwn ? 'プロフィールを変える' : undefined}
         >
           <RankAvatar
             uri={profile.photo_url}
@@ -524,44 +538,41 @@ export function ProfileView({ username, selfId }: Props) {
         </Pressable>
       )}
 
-      <View style={styles.actions}>
-        {isOwn ? (
-          // 設定は右上のメニューへ、写真と絵柄はアイコンへ移した。
-          // ここに残すのは「名前や自己紹介を直す」入口だけ。
+      {/* ── 相手のプロフィールにだけ出す操作 ────────────────
+        * ★ 自分のページにはボタンを置かない。
+        *   設定は右上のメニュー、写真・絵柄・名前・自己紹介は
+        *   アイコンを押したときの選択肢に全て集めてある。
+        *   ここに「プロフィールを編集」を1つだけ残しておくと、
+        *   アイコンと役割が重なるうえ、自分のページだけ
+        *   意味の薄い横一列の余白ができる。
+        */}
+      {!isOwn && (
+        <View style={styles.actions}>
           <Button
-            title="プロフィールを編集"
-            variant="secondary"
+            title={
+              followStatus === 'accepted' ? 'フォロー中'
+              : followStatus === 'pending' ? 'リクエスト済み'
+              : 'フォローする'
+            }
+            variant={followStatus ? 'secondary' : 'primary'}
+            loading={busyFollow}
             style={{ flex: 1 }}
-            onPress={() => router.push('/settings/edit-profile')}
+            onPress={toggleFollow}
           />
-        ) : (
-          <>
-            <Button
-              title={
-                followStatus === 'accepted' ? 'フォロー中'
-                : followStatus === 'pending' ? 'リクエスト済み'
-                : 'フォローする'
-              }
-              variant={followStatus ? 'secondary' : 'primary'}
-              loading={busyFollow}
-              style={{ flex: 1 }}
-              onPress={toggleFollow}
-            />
-            <Button
-              title="通報"
-              variant="secondary"
-              style={{ width: 80 }}
-              onPress={() => setReporting(true)}
-            />
-            <Button
-              title="ブロック"
-              variant="danger"
-              style={{ width: 96 }}
-              onPress={blockUser}
-            />
-          </>
-        )}
-      </View>
+          <Button
+            title="通報"
+            variant="secondary"
+            style={{ width: 80 }}
+            onPress={() => setReporting(true)}
+          />
+          <Button
+            title="ブロック"
+            variant="danger"
+            style={{ width: 96 }}
+            onPress={blockUser}
+          />
+        </View>
+      )}
 
       {isOwn && posts.length > 0 && (
         <View style={[styles.tip, { backgroundColor: colors.surfaceAlt }]}>
