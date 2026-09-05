@@ -17,10 +17,15 @@ export const POST_SELECT =
 
 /** Supabase の行を Post 型へ。画像は position 順に並べ直す。 */
 export function toPost(row: Record<string, any>): Post {
+  // ★ 空のURLを落とすこと。
+  //   post_images.url は NOT NULL だが、空文字は入れられる。
+  //   空を expo-image の source に渡すとネイティブの画像処理まで届く。
+  //   ここで落としておけば、表示側は「画像が1枚少ない」で済む。
   const images = ((row.post_images as { url: string; position: number }[]) ?? [])
     .slice()
     .sort((a, b) => a.position - b.position)
     .map((i) => i.url)
+    .filter((url): url is string => typeof url === 'string' && url.length > 0)
 
   return {
     ...(row as Post),

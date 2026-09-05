@@ -86,7 +86,7 @@ jest.mock('react-native-safe-area-context', () => ({
  *   数えたいのは呼ばれ方だけなので、そこだけ横から覗く。
  */
 const mockRpc = jest.fn()
-/** from() に渡されたテーブル名の記録。投稿を取りに行ったかを見る */
+/** from() に渡されたテーブル名の記録 */
 const mockFromTables: string[] = []
 
 jest.mock('../lib/supabase', () => {
@@ -236,11 +236,20 @@ describe('地図を乱暴に動かす', () => {
       )
     ).toBe(true)
 
-    mockFromTables.length = 0
+    const before = mockRpc.mock.calls.length
     await moveTo(0.05)   // 中身が県のままなのに、さらに一気に寄る
 
     // 投稿を取りに行っていないこと。
     // 行っていれば、県のバブル（東京都）をエリア名だと思って開いている。
-    expect(mockFromTables).not.toContain('posts')
+    //
+    // ★ 見張る先は posts_in_area（移行0019）。
+    //   以前は from('posts') を直接引いていたのでテーブル名を見ていたが、
+    //   フォローの絞り込みをDB側へ移したときに呼び先が変わった。
+    //   古いままにすると、何も呼ばれなくなったぶん常に通る
+    //   ＝また「何も見ていないテスト」になる。
+    const opened = mockRpc.mock.calls
+      .slice(before)
+      .filter(([name]) => name === 'posts_in_area')
+    expect(opened).toEqual([])
   })
 })

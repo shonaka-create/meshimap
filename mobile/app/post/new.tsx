@@ -95,6 +95,35 @@ interface Picked {
   height: number
 }
 
+/**
+ * 地図のカメラを動かす。
+ *
+ * ★ ネイティブ呼び出しなので必ず囲むこと。
+ *   react-native-maps は新アーキテクチャに非対応で互換層越しに動く。
+ *   画面を閉じた直後や MapView が作り直された直後に呼ぶと、
+ *   ref はあるのに内側が入れ替わっていて投げることがある。
+ *   ピンの位置が合わないのは困るが、それで落ちるのはもっと困る。
+ *
+ * ★ コンポーネントの外に置くこと。
+ *   中で useCallback にすると、React Compiler が
+ *   「既存のメモ化を保てない」と言って最適化を丸ごと諦める
+ *   （lint が error で止める）。ref を引数で受ければ、
+ *   ただの関数で済むので、その問題自体が起きない。
+ */
+function moveCamera(
+  ref: React.RefObject<MapView | null>,
+  to: { latitude: number; longitude: number }
+) {
+  try {
+    ref.current?.animateToRegion(
+      { ...to, latitudeDelta: ADJUST_DELTA, longitudeDelta: ADJUST_DELTA },
+      500
+    )
+  } catch (e) {
+    console.warn('[post] 地図を動かせませんでした', e)
+  }
+}
+
 export default function NewPost() {
   const { user, profile } = useAuth()
   const { colors } = useTheme()
@@ -166,30 +195,49 @@ export default function NewPost() {
       return
     }
 
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!perm.granted) {
-      Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
+    // ★ ネイティブの呼び出しは必ず try で囲むこと。
+    //   権限ダイアログを OS 側から中断されたときや、
+    //   ピッカー自体が失敗したときに拒否される。
+    //   囲まないと未処理の Promise 拒否になり、
+    //   「＋を押しても何も起きない」という形でしか表に出ない。
+    let result: ImagePicker.ImagePickerResult
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!perm.granted) {
+        Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
+        return
+      }
+
+      result = await ImagePicker.launchImageLibraryAsync({
+        // 動画は選択肢に出さない。要件通り画像のみ。
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 1,
+        exif: false,
+      })
+    } catch (e) {
+      console.warn('[post] 写真を選べませんでした', e)
+      Alert.alert('写真を開けませんでした', '時間をおいて、もう一度お試しください。')
       return
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      // 動画は選択肢に出さない。要件通り画像のみ。
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      selectionLimit: remaining,
-      quality: 1,
-      exif: false,
-    })
     if (result.canceled) return
 
     // ライブラリが動画を返してきた場合の保険（機種差の実害を防ぐ）
-    const onlyImages = result.assets.filter((a) => a.type !== 'video')
-    if (onlyImages.length < result.assets.length) {
+    const onlyImages = (result.assets ?? []).filter((a) => a.type !== 'video')
+    if (onlyImages.length < (result.assets?.length ?? 0)) {
       Alert.alert('動画は投稿できません', '写真のみ登録できます。')
     }
 
+    // ★ uri が無いものを混ぜないこと。
+    //   端末が不完全な項目を返すことがある。そのまま持つと、
+    //   表示のときは expo-image、投稿のときは ImageManipulator と、
+    //   ネイティブ境界の両方へ空の uri が流れる。
+    const usable = onlyImages.filter((a) => typeof a.uri === 'string' && a.uri.length > 0)
+
     setImages((prev) =>
-      [...prev, ...onlyImages.map((a) => ({ uri: a.uri, width: a.width, height: a.height }))]
+      [...prev, ...usable.map((a) => ({ uri: a.uri, width: a.width, height: a.height }))]
         .slice(0, MAX_IMAGES)
     )
   }, [images.length])
@@ -231,10 +279,7 @@ export default function NewPost() {
     }
 
     if (mapReady.current) {
-      mapRef.current?.animateToRegion(
-        { ...next, latitudeDelta: ADJUST_DELTA, longitudeDelta: ADJUST_DELTA },
-        500
-      )
+      moveCamera(mapRef, next)
       return
     }
 
@@ -254,12 +299,7 @@ export default function NewPost() {
     if (!pending) return
 
     // 最初の描画が終わる前に動かすと取りこぼすので、1フレーム待つ
-    requestAnimationFrame(() => {
-      mapRef.current?.animateToRegion(
-        { ...pending, latitudeDelta: ADJUST_DELTA, longitudeDelta: ADJUST_DELTA },
-        500
-      )
-    })
+    requestAnimationFrame(() => moveCamera(mapRef, pending))
   }, [])
 
   /* ── 投稿 ───────────────────────────────────── */

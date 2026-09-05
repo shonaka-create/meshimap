@@ -70,6 +70,23 @@ jobs:
 
           echo "OK: 3引数の post_counts_by_region が応答しました。"
 
+          # ── 移行0019: posts_in_area ──────────────────────
+          # 1.0.5 以降、エリアを開いたときの投稿はこの関数から取る。
+          # 未適用のまま出すと、エリアを開いても投稿が1件も出ない
+          # （地図が空に見える）。関数が無ければ PGRST202 が返る。
+          STATUS=$(curl -sS -o /tmp/posts_in_area.json -w '%{http_code}' -X POST "${EXPO_PUBLIC_SUPABASE_URL}/rest/v1/rpc/posts_in_area" -H "apikey: ${EXPO_PUBLIC_SUPABASE_ANON_KEY}" -H "Authorization: Bearer ${EXPO_PUBLIC_SUPABASE_ANON_KEY}" -H 'Content-Type: application/json' -d '{"p_prefecture":"東京都","p_area":"神楽坂"}')
+
+          if [ "$STATUS" != "200" ]; then
+            echo "移行 0019 がまだ本番DBに入っていないようです（HTTP ${STATUS}）。"
+            cat /tmp/posts_in_area.json
+            echo ""
+            echo "supabase/migrations/0019_map_shows_only_your_people.sql を"
+            echo "Supabase の SQL Editor で流してから、もう一度実行してください。"
+            exit 1
+          fi
+
+          echo "OK: posts_in_area が応答しました。"
+
   build:
     name: ビルド
     needs: [db_guard]

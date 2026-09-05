@@ -12,8 +12,7 @@ import { Txt, Chip } from '../../src/components/ui'
 import { useLocation } from '../../src/hooks/useLocation'
 import { MAP_PROVIDER } from '../../src/lib/mapProvider'
 import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types'
-import { POST_SELECT, toPost } from '../../src/lib/posts'
-import { pgValue } from '../../src/lib/filters'
+import { toPost } from '../../src/lib/posts'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import {
@@ -162,7 +161,16 @@ export default function HomeMap() {
 
   const moveCamera = useCallback((region: Region, ms: number) => {
     suppressUntil.current = Date.now() + ms + 400
-    mapRef.current?.animateToRegion(region, ms)
+    // ★ ネイティブ呼び出しなので囲む。
+    //   react-native-maps は新アーキテクチャに非対応で互換層越しに動く。
+    //   画面を離れた直後や MapView が作り直された直後に呼ぶと、
+    //   ref はあるのに内側が入れ替わっていて投げることがある。
+    //   カメラが動かないのは困るが、それでアプリが落ちるのはもっと困る。
+    try {
+      mapRef.current?.animateToRegion(region, ms)
+    } catch (e) {
+      console.warn('[home] 地図を動かせませんでした', e)
+    }
   }, [])
 
   const flyTo = useCallback((region: Region, ms = 600) => {
@@ -321,17 +329,22 @@ export default function HomeMap() {
       setOpenArea(area)
       setPosts([])
 
-      // area が NULL の投稿は RPC 側で city を代わりに使っているので、
-      // 取得側も同じ条件（area = X または area が空で city = X）で拾う。
-      const q = supabase
-        .from('posts')
-        .select(POST_SELECT)
-        .eq('prefecture', prefecture)
-        .or(`area.eq.${pgValue(area)},and(area.is.null,city.eq.${pgValue(area)})`)
-
-      const { data, error } = await q
-        .order('created_at', { ascending: false })
-        .limit(200)
+      // ★ posts を直接引かないこと。posts_in_area（移行0019）を通すこと。
+      //
+      //   以前はここで posts を直接引いていた。フォローの条件が
+      //   どこにも無く、公開されている投稿は誰のものでも地図に出ていた。
+      //   アイコン（map_pins）は正しく絞っていたので、
+      //   「アイコンは出ていない人の投稿だけが出る」状態だった。
+      //
+      //   絞り込みを端末に書き足すのではなく、DB側の関数に寄せる。
+      //   端末で filter すると、アプリを改造されるか anon キーで
+      //   PostgREST を直接叩かれた時点で素通りする。
+      //   エリアの判定（COALESCE(area, city)）もバブル側と同じ式で
+      //   関数の中に入っているので、数の食い違いも起きない。
+      const { data, error } = await supabase.rpc('posts_in_area', {
+        p_prefecture: prefecture,
+        p_area: area,
+      })
 
       if (error) {
         // ★ 先に降ろした階層を戻すこと。

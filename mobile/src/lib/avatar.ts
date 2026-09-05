@@ -41,7 +41,15 @@ export async function pickAvatarImage(): Promise<string | null> {
   })
 
   if (res.canceled) return null
-  return res.assets[0].uri
+
+  // ★ assets が空で返る場合がある。
+  //   canceled が false でも、端末やOSの状態によっては
+  //   選ばれた項目を1件も返さないことがある。
+  //   res.assets[0].uri と直接書くと、そこで TypeError になり
+  //   アイコンを変えようとしただけで画面が落ちる。
+  //   「やめた」と同じ扱いにして静かに戻る。
+  const uri = res.assets?.[0]?.uri
+  return uri ? uri : null
 }
 
 /**
