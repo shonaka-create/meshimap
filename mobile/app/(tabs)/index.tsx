@@ -45,6 +45,21 @@ const LEVEL_LABEL: Record<RegionLevel, string> = {
 }
 
 /**
+ * いま出ているバブルが「どの階層・どのジャンルの集計か」を表す印。
+ *
+ * 取得は非同期なので、階層やジャンルを変えた直後の一瞬は
+ * 前の条件のバブルが画面に残る。その状態でピンチすると、
+ * いま出ていないエリアへ降りてしまう（降り先はバブルから選ぶため）。
+ *
+ * 以前は取得前にバブルを空にして防いでいたが、
+ * Marker の子ビューを毎回まとめて外すことになり、
+ * 地図が動いている最中だと危ない（index.tsx の取得処理のコメント参照）。
+ * 消す代わりに、この印が現在の条件と一致するまで降りないようにする。
+ */
+const regionKeyOf = (d: Drill, genre: string) =>
+  `${d.level}:${d.level === 'area' ? d.prefecture : ''}:${genre}`
+
+/**
  * 引いたときに1階層上へ戻すしきい値（latitudeDelta）。
  *
  * これが無いと、階層はパンくずでしか戻せない。地図を引けば上の階層に
@@ -233,14 +248,29 @@ export default function HomeMap() {
   /* ── 階層に応じた投稿数を取得 ─────────────────────── */
   useEffect(() => {
     let cancelled = false
+    const key = regionKeyOf(drill, genre)
 
     const load = async () => {
       setLoadingRegions(true)
-      // ★ 前の結果を残さないこと。
-      //   ジャンルを変えた直後は、取り直すまで前のジャンルのバブルが
-      //   残る。その状態でピンチすると、いま出ていないエリアへ
-      //   降りてしまう（降り先は regionsRef から選ぶため）。
-      setRegions([])
+
+      // ★ ここで setRegions([]) をしないこと。
+      //   以前は取得の前に空にしていた。狙いは「前のジャンルのバブルが
+      //   残っている状態でピンチして、いま出ていないエリアへ降りる」のを
+      //   防ぐことだったが、副作用のほうが重かった。
+      //
+      //   バブルは Marker の中に自前のビューを置いて描いている。
+      //   空にすると、その子ビューが一度に全部アンマウントされる。
+      //   react-native-maps は新アーキテクチャ(Fabric)に対応しておらず、
+      //   互換層(Legacy Interop)越しに動いているため、
+      //   地図が動いている最中に Marker の子を外すのがいちばん危ない
+      //   （AIRGoogleMapMarker removeReactSubview で落ちる報告がある）。
+      //   地図を動かすたびに階層とジャンルの取得が走るので、
+      //   全消し→再生成を一日に何百回も繰り返していた。
+      //
+      //   降り先の取り違えは、消すのではなく「いまの階層・ジャンルの
+      //   結果かどうか」を下の regionsKeyRef で見分けて防ぐ。
+      //   こうするとバブルは付け替わるだけで、外れない。
+
       // 絞り込みは地図の読み込みとは無関係（DBの集計なので課金されない）
       const { data, error } = await supabase.rpc('post_counts_by_region', {
         p_level: drill.level,
@@ -255,6 +285,9 @@ export default function HomeMap() {
       } else {
         setRegions((data ?? []) as RegionCount[])
       }
+      // 中身が「いまの階層・ジャンルのもの」になった印。
+      // これが合うまで、ピンチで降りる判定はしない。
+      regionsKeyRef.current = key
       setLoadingRegions(false)
     }
 
@@ -411,6 +444,13 @@ export default function HomeMap() {
        */
       if (regionsRef.current.length === 0) return
 
+      // ★ いま出ているバブルが、いまの階層・ジャンルの集計でなければ降りない。
+      //   取得は非同期なので、階層やジャンルを変えた直後は
+      //   前の条件のバブルがまだ残っている。それを降り先に選ぶと、
+      //   いま出ていないエリア（ひどい場合は県名を「エリア」として）
+      //   開いてしまい、投稿0件の行き止まりに取り残される。
+      if (regionsKeyRef.current !== regionKeyOf(drill, genre)) return
+
       const center = { lat: region.latitude, lng: region.longitude }
       let nearest = regionsRef.current[0]
       let best = roughDistance(center, { lat: nearest.center_lat, lng: nearest.center_lng })
@@ -429,7 +469,7 @@ export default function HomeMap() {
         loadPostsForArea(drill.prefecture, nearest.name)
       }
     },
-    [openArea, drill, loadPostsForArea]
+    [openArea, drill, genre, loadPostsForArea]
   )
 
   /* ── パンくずで上の階層へ戻る ───────────────────── */
@@ -499,6 +539,12 @@ export default function HomeMap() {
   const regionsRef = useRef<RegionCount[]>([])
   useEffect(() => { regionsRef.current = regions }, [regions])
 
+  /**
+   * regionsRef の中身が、どの階層・ジャンルの集計か。
+   * 取得が終わった時点で入れる。詳しくは regionKeyOf のコメント。
+   */
+  const regionsKeyRef = useRef('')
+
   /** 自分以外で地図に出ている人数。ボタンの文言に使う */
   const othersOnMap = useMemo(() => pins.filter((p) => !p.is_me).length, [pins])
 
@@ -529,7 +575,12 @@ export default function HomeMap() {
         {showRegionBubbles &&
           regions.map((r) => (
             <TrackedMarker
-              key={`${drill.level}-${genre}-${r.name}`}
+              // ★ key は地域名だけにすること。
+              //   階層やジャンルを混ぜると、ジャンルを変えただけで
+              //   同じ地域のバブルまで作り直しになる（Marker の子の外し直し）。
+              //   数字が変わるだけなら redraw で描き直せば足りる。
+              key={r.name}
+              redraw={`${r.name}-${r.post_count}`}
               coordinate={{ latitude: r.center_lat, longitude: r.center_lng }}
               onPress={() => { markMarkerPress(); onRegionPress(r) }}
               anchor={{ x: 0.5, y: 0.5 }}
@@ -541,8 +592,11 @@ export default function HomeMap() {
         {!showRegionBubbles &&
           visiblePosts.map((p) => (
             <TrackedMarker
-              // 選択で見た目が変わるので、変わったら絵を取り直させる
-              key={`${p.id}-${selectedPost?.id === p.id ? 'on' : 'off'}`}
+              // 選択で見た目が変わるので、変わったら絵を取り直させる。
+              // ★ ここで key を変えないこと。押した瞬間にそのピンを
+              //   作り直すことになり、いちばん落ちやすい操作になる。
+              key={p.id}
+              redraw={selectedPost?.id === p.id ? 'on' : 'off'}
               coordinate={{ latitude: p.location_lat, longitude: p.location_lng }}
               onPress={() => { markMarkerPress(); setSelectedPost(p) }}
               anchor={{ x: 0.5, y: 1 }}
@@ -555,8 +609,9 @@ export default function HomeMap() {
         {showPins &&
           pins.map((pin) => (
             <TrackedMarker
-              // 写真が入れ替わったら絵を取り直させる
-              key={`pin-${pin.user_id}-${pin.photo_url ?? pin.avatar_emoji ?? ''}`}
+              // 写真が入れ替わったら絵を取り直させる（key ではなく redraw で）
+              key={`pin-${pin.user_id}`}
+              redraw={`${pin.photo_url ?? ''}-${pin.avatar_emoji ?? ''}-${pin.rank}`}
               coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
               onPress={() => {
                 markMarkerPress()
@@ -755,16 +810,45 @@ export default function HomeMap() {
  *   最初だけ true にして、中身が描けたころに false へ落とす。
  *   これで正しい絵を取ったうえで、以後の負荷も抑えられる。
  */
+/**
+ * 中身を自前で描く Marker。
+ *
+ * tracksViewChanges を出しっぱなしにすると、地図が動くたびに
+ * 全ピンの絵を取り直して重くなる。置いた直後だけ true にして止める。
+ *
+ * ★ 中身が変わったときは redraw を変えること。key ではなく。
+ *
+ *   以前は key に「選択中かどうか」や写真URLを混ぜていて、
+ *   見た目が変わるたびに Marker ごと作り直していた。
+ *   これは Marker の子ビューを外して付け直すのと同じで、
+ *   react-native-maps がいちばん苦手な操作にあたる。
+ *   このライブラリは新アーキテクチャ(Fabric)に対応しておらず、
+ *   互換層越しに動いているため、地図が動いている最中に
+ *   子ビューを外すと落ちる報告がある
+ *   （AIRGoogleMapMarker removeReactSubview）。
+ *
+ *   redraw を変えるだけなら Marker は外れない。
+ *   絵の取り直しは tracksViewChanges を一時的に戻すことで行う。
+ */
 function TrackedMarker({
-  children, ...markerProps
-}: React.ComponentProps<typeof Marker>) {
+  children, redraw, ...markerProps
+}: React.ComponentProps<typeof Marker> & { redraw?: string }) {
   const [tracking, setTracking] = useState(true)
+  const [seen, setSeen] = useState(redraw)
+
+  // 中身が変わったら、もう一度だけ絵を取り直させる。
+  // 効果の中で setState すると余分な描き直しが1回挟まるので、
+  // レンダー中に直す（React の "Adjusting state when a prop changes"）。
+  if (redraw !== seen) {
+    setSeen(redraw)
+    setTracking(true)
+  }
 
   useEffect(() => {
     // 1フレームでは間に合わないことがあるので、少し置いてから止める
     const t = setTimeout(() => setTracking(false), 600)
     return () => clearTimeout(t)
-  }, [])
+  }, [redraw])
 
   return (
     <Marker {...markerProps} tracksViewChanges={tracking}>
