@@ -12,7 +12,7 @@ import { useTheme, space, radius, GENRE_EMOJI, SITUATION_EMOJI } from '../../src
 import { Avatar, EmptyState, Loading, Txt } from '../../src/components/ui'
 import { DemoNotice } from '../../src/components/DemoNotice'
 import { ReportDialog } from '../../src/components/ReportDialog'
-import { HeaderButton } from '../../src/components/HeaderBack'
+import { HeaderButton, HeaderIcon } from '../../src/components/HeaderBack'
 import { POST_SELECT, toPost } from '../../src/lib/posts'
 import { openDirections, openInMaps } from '../../src/lib/maps'
 import { formatImpressions, recordImpression } from '../../src/lib/impressions'
@@ -313,10 +313,12 @@ export default function PostDetail() {
                     {deleting ? (
                       <ActivityIndicator size="small" color={colors.textFaint} />
                     ) : (
-                      <Ionicons
-                        // 左の戻る矢印(26)と見た目の重さを揃える
+                      // 大きさは HeaderIcon が決める。
+                      // ★ ここで size を書かないこと。左の戻る矢印と
+                      //   見える大きさを揃える計算は HeaderBack.tsx に置いてある
+                      //   （絵柄ごとに墨の高さが違うので、同じ size では揃わない）。
+                      <HeaderIcon
                         name={isMine ? 'trash-outline' : 'flag-outline'}
-                        size={22}
                         color={isMine ? colors.danger : colors.text}
                       />
                     )}

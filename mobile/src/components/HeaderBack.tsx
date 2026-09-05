@@ -5,6 +5,71 @@ import { useTheme } from '../theme'
 import type { ReactNode } from 'react'
 
 /**
+ * ヘッダーのアイコン。
+ *
+ * ★ アイコンフォントは Text として描かれる。
+ *   何もしないと中央に置かれるのは「文字の行ボックス」であって、
+ *   絵柄そのものではない。ずれる原因が2つある。
+ *
+ *   1. Android は includeFontPadding が既定で有効で、
+ *      フォントの top/bottom メトリクスぶんの余白が上下に付く。
+ *      左右のボタンで別のアイコンを使うと付く量が変わり、
+ *      「枠の中で少し上（下）にずれている」ように見える。
+ *   2. 行の高さをフォント任せにすると lineGap が入り、
+ *      端末やOSのバージョンで中央がわずかに動く。
+ *
+ *   fontSize と同じ辺の正方形と行の高さを明示し、Android の余白を切る。
+ *   こうすると絵柄の箱が size×size に固定され、
+ *   親（44x44）の中央寄せが、そのまま絵柄の中央寄せになる。
+ *
+ * ★ size は「フォントの大きさ」であって「見える大きさ」ではない。
+ *   同じ size を渡しても、絵柄によって見える大きさは全く違う。
+ *   Ionicons.ttf（unitsPerEm=512）を実測した、墨（塗られている部分）の高さ:
+ *
+ *     chevron-back    0.660em
+ *     flag-outline    0.879em
+ *     trash-outline   0.873em
+ *     close           0.535em
+ *
+ *   つまり戻る矢印(26)と通報の旗(22)を並べると、
+ *   見える高さは 17.2px と 19.3px で、旗のほうが1割以上大きい。
+ *   左右で重さが違うので、これも「ずれている」ように見える。
+ *   下の値は、見える高さを 17〜17.6px に揃えたもの。
+ *
+ *   ★ 新しいアイコンを足すときは、fontSize を目分量で決めないこと。
+ *     ここに載っていない名前は既定(24)で描かれるので、
+ *     実測して仲間に入れること。
+ */
+const ICON_SIZE: Record<string, number> = {
+  'chevron-back': 26,  // 0.660em → 17.2px
+  'flag-outline': 20,  // 0.879em → 17.6px
+  'trash-outline': 20, // 0.873em → 17.5px
+  close: 32,           // 0.535em → 17.1px
+}
+
+export function HeaderIcon({
+  name, color,
+}: { name: React.ComponentProps<typeof Ionicons>['name']; color: string }) {
+  const size = ICON_SIZE[name] ?? 24
+
+  return (
+    <Ionicons
+      name={name}
+      size={size}
+      color={color}
+      style={{
+        width: size,
+        height: size,
+        lineHeight: size,
+        textAlign: 'center',
+        textAlignVertical: 'center',
+        includeFontPadding: false,
+      }}
+    />
+  )
+}
+
+/**
  * ヘッダーに置くボタンの共通の枠。
  *
  * ★ 中身は必ず中央に置くこと。
@@ -67,7 +132,7 @@ export function HeaderBack() {
 
   return (
     <HeaderButton onPress={() => router.back()} accessibilityLabel="戻る">
-      <Ionicons name="chevron-back" size={26} color={colors.text} />
+      <HeaderIcon name="chevron-back" color={colors.text} />
     </HeaderButton>
   )
 }
@@ -87,7 +152,7 @@ export function HeaderClose({
 
   return (
     <HeaderButton onPress={onPress} disabled={disabled} accessibilityLabel="閉じる">
-      <Ionicons name="close" size={24} color={colors.text} />
+      <HeaderIcon name="close" color={colors.text} />
     </HeaderButton>
   )
 }
