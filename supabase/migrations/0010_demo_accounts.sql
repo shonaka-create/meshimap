@@ -63,11 +63,17 @@ CREATE TRIGGER trg_deny_demo_on_insert
 --
 --   ★ 本番で実在のユーザーがこれらの username を取っていないこと。
 --     seed で作ったものだけが対象になる。
+--
+--   ★ 'taro' は外してある（移行0018）。
+--     あのアカウントは @ebichan（えびちゃん）として実際に運用する
+--     本アカウントに切り替えたので、デモ扱いに戻してはいけない。
+--     ここに書き戻すと、このファイルを流し直した瞬間に
+--     本アカウントへ「デモ用のアカウントです」の帯が復活する。
 -- ============================================================
 
 UPDATE profiles
    SET is_demo = true
- WHERE username IN ('taro', 'hanako', 'kenji', 'yuki', 'yamada', 'ebisu');
+ WHERE username IN ('hanako', 'kenji', 'yuki', 'yamada', 'ebisu');
 
 COMMIT;
 

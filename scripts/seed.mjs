@@ -1,7 +1,7 @@
 /**
  * デモデータ投入スクリプト（新スキーマ対応版）
  *
- *   運営アカウント1件 + デモ6アカウント × 各5投稿
+ *   運営アカウント1件 + デモ5アカウント × 各5投稿
  *   + 相互フォロー + いいね + コメント
  *
  * 旧 seed-users / seed-posts / seed-follows を1本に統合した。
@@ -120,20 +120,16 @@ const ADMIN = {
 //   username: 小文字英字のみ3〜20文字（DBの CHECK 制約）。一意。
 //   displayName: アプリ上の表示名。重複可。
 //   メールは username から SEED_EMAIL_TEMPLATE で組み立てる（上の emailFor）。
+//
+// ★ ここに @taro（田中太郎）は無い。意図的に外してある。
+//   あのアカウントは @ebichan（えびちゃん）として実際に運用する
+//   本アカウントに切り替えた。担当は scripts/seed-ebichan.mjs。
+//
+//   ここへ戻すと、次に npm run seed を叩いた誰かが
+//   本アカウントの表示名・自己紹介・投稿を、デモの内容へ
+//   静かに巻き戻すことになる。戻さないこと。
 // ============================================================
 const ALL_USERS = [
-  {
-    username: 'taro',
-    email: emailFor('taro'),
-    displayName: '田中太郎',
-    // 投稿の語り口と揃える。京都の大学 → 東京、味の基準は関西の出汁のまま。
-    // プロフィールと投稿がずれていると、それだけで作り物に見える。
-    //
-    // ★ 表示名は据え置いてある。ご自身の名義で出すならここを変えること。
-    //   username と email は変えないこと（別アカウントが作られる）。
-    bio: '同志社→東京。学生時代を京都で過ごしたので、いまも味の基準が関西の出汁のまま。東京と大阪を行き来しながら食べています',
-    avatarImg: 11, // pravatar の img 番号
-  },
   {
     username: 'hanako',
     email: emailFor('hanako'),
@@ -176,8 +172,8 @@ const ALL_USERS = [
  *
  * 既定は全6件だが、Supabase のメール送信レート制限に当たる環境や、
  * 「1件だけ見られればいい」ときのために SEED_USERS で絞れるようにする。
- *   例: SEED_USERS='taro'          … taro だけ
- *       SEED_USERS='taro,hanako'   … 2件
+ *   例: SEED_USERS='hanako'          … hanako だけ
+ *       SEED_USERS='hanako,kenji'   … 2件
  *
  * 絞った場合、フォロー・いいね・コメントは
  * 「作った人どうし」の範囲でしか作られない（1件ならどれも作られない）。
@@ -201,268 +197,10 @@ const USERS = (() => {
 //
 // prefecture / area は mobile/src/lib/regions.ts の内蔵データで
 // 座標から判定した結果を、そのまま値として持たせている。
-// （全30件が内蔵データだけで解決し、Geocoding API は1回も呼んでいない）
+// （全件が内蔵データだけで解決し、Geocoding API は1回も呼んでいない）
 // situations は theme.ts の SITUATIONS から選ぶ。
 // ============================================================
 const POSTS_BY_USER = {
-  taro: [
-    /* ────────────────────────────────────────────────
-     * ★ 実在の店。評価は一律★5。
-     *
-     *   本文は「その店が実際に何で知られているか」だけで書いている。
-     *   行った日の出来事や、店主と話した内容のような
-     *   確かめようのない作り話は入れていない。
-     *   実在の店に架空の体験談を付けると、事実と区別がつかなくなる。
-     *
-     *   語り口は一人の人物として揃えてある（京都の大学 → 東京。
-     *   味の基準が関西の出汁のまま）。関西の店を高く買う理由が
-     *   その一貫性から出るようにしてあり、
-     *   一件ごとにばらばらの人格が書いたようには見えないようにした。
-     *
-     *   座標は街区の目安で、建物単位の精度は無い。
-     *   エリア判定（最寄り8km）には十分。
-     *   npm run check:seed で座標とエリアの食い違いは検出できる。
-     * ──────────────────────────────────────────────── */
-
-    /* ── 東京 / ラーメン ───────────────────────── */
-    {
-      caption: '巣鴨の醤油そば。ミシュランの星が付いたラーメン店として名前が知られているが、実際に食べると納得が先に来る。黒トリュフの香りを乗せても出汁が負けていない。関西の澄んだ汁で育った人間にも、これは通じる',
-      rating: 5,
-      genre: 'ラーメン',
-      price_range: '¥1,001〜¥3,000',
-      location_name: 'Japanese Soba Noodles 蔦',
-      location_lat: 35.7338,
-      location_lng: 139.7385,
-      prefecture: '東京都',
-      area: '巣鴨',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['ラーメン', '巣鴨', '醤油そば', 'トリュフ'],
-      images: ['https://images.unsplash.com/photo-1591814468924-caf88d1232e1?w=800&q=90'],
-      daysAgo: 0.5,
-    },
-    {
-      caption: '魚介と動物系を合わせるダブルスープを広めた店。いま当たり前になっている作り方の出どころがここだと思うと、一杯の意味が変わる。中野本店は今も行列が絶えない',
-      rating: 5,
-      genre: 'ラーメン',
-      price_range: '〜¥1,000',
-      location_name: '中華そば 青葉 中野本店',
-      location_lat: 35.706,
-      location_lng: 139.6655,
-      prefecture: '東京都',
-      area: '中野',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['ラーメン', '中野', 'ダブルスープ', '老舗'],
-      images: ['https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&q=90'],
-      daysAgo: 2,
-    },
-    {
-      caption: '全国に広がった二郎の、いちばん最初の店。慶應の正門前という立地込みで文化になっている。関西にいた頃は縁がなかったので、東京に来て初めて意味が分かった。小でも量は覚悟すること',
-      rating: 5,
-      genre: 'ラーメン',
-      price_range: '〜¥1,000',
-      location_name: 'ラーメン二郎 三田本店',
-      location_lat: 35.6452,
-      location_lng: 139.7463,
-      prefecture: '東京都',
-      area: '田町・三田',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['ラーメン', '三田', '二郎', '本店'],
-      images: ['https://images.unsplash.com/photo-1591814468924-caf88d1232e1?w=800&q=90'],
-      daysAgo: 4,
-    },
-    {
-      caption: '蛤の貝出汁で知られる一杯。ここも星が付いた店。貝の出汁は関西でもよく使うが、これは方向が違っていて、澄んでいるのに輪郭が太い。カウンターだけの小さな店',
-      rating: 5,
-      genre: 'ラーメン',
-      price_range: '¥1,001〜¥3,000',
-      location_name: '金色不如帰 新宿御苑本店',
-      location_lat: 35.689,
-      location_lng: 139.7085,
-      prefecture: '東京都',
-      area: '新宿',
-      situations: ['一人ランチにおすすめ', '隠れ家'],
-      hashtags: ['ラーメン', '新宿御苑', '貝出汁', 'トリュフ'],
-      images: ['https://images.unsplash.com/photo-1557872943-16a5ac26437e?w=800&q=90'],
-      daysAgo: 7,
-    },
-    {
-      caption: '和食の出汁の考え方でラーメンを組み立てている店。日替わりの限定が有名で、それ目当ての人が開店前から並ぶ。関西の吸い地に近い感覚があって、東京で一番落ち着いて食べられる一杯かもしれない',
-      rating: 5,
-      genre: 'ラーメン',
-      price_range: '¥1,001〜¥3,000',
-      location_name: '饗 くろ喜',
-      location_lat: 35.699,
-      location_lng: 139.777,
-      prefecture: '東京都',
-      area: '秋葉原',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['ラーメン', '秋葉原', '和出汁', '限定'],
-      images: ['https://images.unsplash.com/photo-1591814468924-caf88d1232e1?w=800&q=90'],
-      daysAgo: 10,
-    },
-
-    /* ── 東京 / ラーメン以外 ─────────────────── */
-    {
-      caption: '神田須田町の老舗蕎麦。建物が東京都の歴史的建造物に選ばれている、あの一角の店。汁は濃いめの江戸前で、関西の蕎麦とは完全に別物。どちらが上という話ではなく、こういう作法なのだと納得して食べる店',
-      rating: 5,
-      genre: '和食',
-      price_range: '¥1,001〜¥3,000',
-      location_name: 'まつや',
-      location_lat: 35.6957,
-      location_lng: 139.769,
-      prefecture: '東京都',
-      // 住所は神田須田町だが、内蔵エリアの中心点で測ると
-      // 神田駅より秋葉原のほうが近い。座標を動かして辻褄を合わせると
-      // 実在の店の位置を偽ることになるので、区分のほうを実際に合わせる。
-      area: '秋葉原',
-      situations: ['一人ランチにおすすめ', '仕事で'],
-      hashtags: ['蕎麦', '神田', '老舗', '江戸前'],
-      images: ['https://images.unsplash.com/photo-1618841557871-b4664fbf0cb3?w=800&q=90'],
-      daysAgo: 3,
-    },
-    {
-      caption: '清澄白河が「コーヒーの街」と呼ばれる前からある自家焙煎。大手が進出してくる以前からこの界隈で焼いていた店で、今の空気を作った側だと思っている。浅煎りが中心',
-      rating: 5,
-      genre: 'カフェ',
-      price_range: '〜¥1,000',
-      location_name: 'ARiSE COFFEE ROASTERS',
-      location_lat: 35.6806,
-      location_lng: 139.801,
-      prefecture: '東京都',
-      area: '清澄白河',
-      situations: ['一人ランチにおすすめ', '隠れ家'],
-      hashtags: ['コーヒー', '清澄白河', '自家焙煎'],
-      images: ['https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&q=90'],
-      daysAgo: 5,
-    },
-    {
-      caption: '予約が取れない鮨の代名詞として名前が挙がる店。三つ星を長く維持していて、いまは紹介がないと難しい。関西の鮨とは間の取り方がまるで違う。座れる機会があるなら迷わず',
-      rating: 5,
-      genre: '寿司',
-      price_range: '¥10,001〜',
-      location_name: '鮨 さいとう',
-      location_lat: 35.6669,
-      location_lng: 139.7399,
-      prefecture: '東京都',
-      area: '六本木',
-      situations: ['記念日', 'デート', '隠れ家'],
-      hashtags: ['寿司', '六本木', 'おまかせ', '予約困難'],
-      images: ['https://images.unsplash.com/photo-1583623025817-d180a2221d0a?w=800&q=90'],
-      daysAgo: 8,
-    },
-    {
-      caption: '東京で讃岐うどんといえば、まずここの名前が出る。昼は必ず並ぶが回転は速い。関西のうどんとは出汁もコシも違う系統だが、これはこれで完成している。天ぷらは揚げ置きしない',
-      rating: 5,
-      genre: '和食',
-      price_range: '〜¥1,000',
-      location_name: '丸香',
-      location_lat: 35.6968,
-      location_lng: 139.759,
-      prefecture: '東京都',
-      area: '神保町',
-      situations: ['一人ランチにおすすめ', 'ランチにおすすめ'],
-      hashtags: ['うどん', '神保町', '讃岐', '行列'],
-      images: ['https://images.unsplash.com/photo-1618841557871-b4664fbf0cb3?w=800&q=90'],
-      daysAgo: 12,
-    },
-    {
-      caption: '落合務さんの店。日本のイタリアンをここまで広めた人の一軒で、ウニのスパゲッティが看板。この内容でこの値段が成立しているのが不思議なくらい。予約は早めに取ること',
-      rating: 5,
-      genre: 'イタリアン',
-      price_range: '¥5,001〜¥10,000',
-      location_name: 'ラ・ベットラ・ダ・オチアイ',
-      location_lat: 35.6745,
-      location_lng: 139.767,
-      prefecture: '東京都',
-      area: '銀座',
-      situations: ['デート', '記念日'],
-      hashtags: ['イタリアン', '銀座', 'ウニのパスタ', '落合務'],
-      images: ['https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&q=90'],
-      daysAgo: 16,
-    },
-
-    /* ── 大阪 ─────────────────────────────────
-     * 学生時代を関西で過ごした人物という設定なので、
-     * このあたりは土地勘のある書き方になる。
-     * 都道府県をまたぐ移動の演出も、ここが無いと確かめられない。
-     */
-    {
-      caption: 'きつねうどん発祥の店として知られる一軒。名物のおじやうどんは、うどんの後に雑炊が来るような構成で、他所では見ない。関西の出汁が基準になっているのは、この系統の店で育ったからだと思う',
-      rating: 5,
-      genre: '和食',
-      price_range: '〜¥1,000',
-      location_name: 'うさみ亭マツバヤ',
-      location_lat: 34.6755,
-      location_lng: 135.502,
-      prefecture: '大阪府',
-      area: '難波・心斎橋',
-      situations: ['一人ランチにおすすめ', 'ランチにおすすめ'],
-      hashtags: ['うどん', '心斎橋', '大阪', 'きつねうどん'],
-      images: ['https://images.unsplash.com/photo-1618841557871-b4664fbf0cb3?w=800&q=90'],
-      daysAgo: 6,
-    },
-    {
-      caption: '鶴橋の焼肉の老舗。駅を降りた時点で街全体が煙の匂いで、着く前から食べる気になっている。学生の頃から変わらない値段と量。東京の焼肉に慣れると、ここの安さが異常に思える',
-      rating: 5,
-      genre: '焼肉',
-      price_range: '¥3,001〜¥5,000',
-      location_name: '鶴一 本店',
-      location_lat: 34.6655,
-      location_lng: 135.5305,
-      prefecture: '大阪府',
-      area: '鶴橋',
-      situations: ['飲み会', '家族で'],
-      hashtags: ['焼肉', '鶴橋', '大阪', 'ホルモン'],
-      images: ['https://images.unsplash.com/photo-1594041680534-e8c8cdebd659?w=800&q=90'],
-      daysAgo: 9,
-    },
-    {
-      caption: '北新地の日本料理。星付きの店として名前が通っている。関西の椀物はこれが基準だと言いたくなる一杯が出てくる。足すのではなく引く方向で、出汁の輪郭がはっきり残る',
-      rating: 5,
-      genre: '和食',
-      price_range: '¥10,001〜',
-      location_name: '北新地 弧柳',
-      location_lat: 34.6955,
-      location_lng: 135.4975,
-      prefecture: '大阪府',
-      area: '北新地',
-      situations: ['仕事で', '記念日'],
-      hashtags: ['日本料理', '北新地', '大阪', 'カウンター'],
-      images: ['https://images.unsplash.com/photo-1534482421-64566f976cfa?w=800&q=90'],
-      daysAgo: 14,
-    },
-    {
-      caption: '大阪駅前ビルの地下にある、昭和のまま時間が止まった喫茶店。金色の壁と赤いソファ。学生の頃から新幹線の前に必ず寄っていて、いま東京から戻るたびに確認しに行っている',
-      rating: 5,
-      genre: 'カフェ',
-      price_range: '〜¥1,000',
-      location_name: 'マヅラ喫茶店',
-      location_lat: 34.6997,
-      location_lng: 135.497,
-      prefecture: '大阪府',
-      area: '梅田',
-      situations: ['一人ランチにおすすめ'],
-      hashtags: ['喫茶店', '梅田', '大阪', 'レトロ'],
-      images: ['https://images.unsplash.com/photo-1521017432531-fbd92d768814?w=800&q=90'],
-      daysAgo: 20,
-    },
-    {
-      caption: '新世界の洋食。ヘレカツサンドで知られていて、手土産に買って帰る人が多い。串カツの街という印象の場所に、こういう一軒があるのが大阪の面白さだと思う',
-      rating: 5,
-      genre: '洋食',
-      price_range: '¥3,001〜¥5,000',
-      location_name: 'グリル梵',
-      location_lat: 34.652,
-      location_lng: 135.5048,
-      prefecture: '大阪府',
-      area: '新世界',
-      situations: ['一人ランチにおすすめ', '飲み会'],
-      hashtags: ['洋食', '新世界', '大阪', 'カツサンド'],
-      images: ['https://images.unsplash.com/photo-1580442151529-343f2f6e0e27?w=800&q=90'],
-      daysAgo: 25,
-    },
-  ],
-
   hanako: [
     {
       caption: '青山のフルーツサンド🍓 旬のいちごとクリームがたっぷりで幸せな気持ちになれる一品。毎日でも食べたいくらい好き！',
@@ -880,18 +618,20 @@ const POSTS_BY_USER = {
 }
 
 // コメント。from / to は username で指定する。
+//
+// ★ @taro は本アカウント（@ebichan）に切り替えたのでデモから外れている。
+//   ここに taro を書くと、そのコメントは黙って作られずに終わる
+//   （投入側が sessions に居ない username を読み飛ばす）。
 const COMMENTS = [
-  { from: 'hanako', to: 'taro', postIdx: 0, text: 'ここ気になってました！煮干し系大好きなので今度行ってみます🍜' },
-  { from: 'kenji', to: 'taro', postIdx: 0, text: '渋谷にこんなお店あったんですね。情報ありがとうございます！' },
-  { from: 'taro', to: 'hanako', postIdx: 1, text: 'パンケーキふわっふわそう！今度行ってみます😍' },
+  { from: 'kenji', to: 'hanako', postIdx: 1, text: 'パンケーキふわっふわそう！今度行ってみます😍' },
+  { from: 'ebisu', to: 'kenji', postIdx: 1, text: 'A5和牛うらやましい！今月のご褒美にしようかな' },
+  { from: 'hanako', to: 'yamada', postIdx: 0, text: '新大久保のサムギョプサル！コスパ最高すぎますね🔥' },
   { from: 'yuki', to: 'hanako', postIdx: 1, text: '先日行ってきました！写真通りで大満足でしたよ✨' },
   { from: 'yamada', to: 'hanako', postIdx: 2, text: 'タルト美しい😭 これは食べたい' },
-  { from: 'taro', to: 'kenji', postIdx: 1, text: 'A5和牛うらやましい！今月のご褒美にしようかな' },
   { from: 'yuki', to: 'kenji', postIdx: 2, text: 'ビストロのランチ良さそうですね。記念日に使おうかな' },
   { from: 'hanako', to: 'yuki', postIdx: 1, text: '江戸前寿司いいですね✨ おまかせって緊張するけど楽しそう' },
   { from: 'yamada', to: 'yuki', postIdx: 1, text: '私も寿司大好きです！今度一緒に行きましょう' },
   { from: 'kenji', to: 'yuki', postIdx: 2, text: '大黒屋さん有名ですよね！浅草観光ついでに行ってみます' },
-  { from: 'taro', to: 'yamada', postIdx: 0, text: '新大久保のサムギョプサル！コスパ最高すぎますね🔥' },
   { from: 'hanako', to: 'yamada', postIdx: 1, text: '横浜中華街懐かしい😊 小籠包また食べたくなってきた' },
   { from: 'yuki', to: 'yamada', postIdx: 2, text: 'タイ料理好きなので絶対行きます！パッタイ美味しそう🌿' },
   { from: 'kenji', to: 'ebisu', postIdx: 2, text: '恵比寿横丁いいですね🍺 金曜に行ってみます' },
