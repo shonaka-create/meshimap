@@ -66,6 +66,27 @@ const config: ExpoConfig = {
       //   撮影機能を足すときは、ここと expo-image-picker の
       //   cameraPermission、check-ios-config.mjs の3箇所を戻すこと。
       ITSAppUsesNonExemptEncryption: false,
+      /**
+       * iOS 26 の新しい見た目（Liquid Glass）を使わない。
+       *
+       * ★ 入れている理由。
+       *   Expo SDK 54 は iOS 26 SDK でビルドされる。このキーが無いと
+       *   iOS 26 の端末では新デザインが自動で適用され、
+       *   ナビゲーションバーのボタンが UIKit 側でガラスの丸枠に
+       *   包まれる。枠を描いているのは OS なので、こちらからは
+       *   大きさも中の寄せ方も指定できない。
+       *   実機では戻る・通報のアイコンが枠の中心から少しずれて見えた。
+       *
+       *   react-native-screens 4.16 には、この共有背景を消す
+       *   hidesSharedBackground の実装がまだ無い
+       *   （@react-navigation の型にはあるが、渡しても無視される）。
+       *   つまりライブラリ側では外せない。
+       *
+       * ★ これは Apple が用意した一時的な逃げ道で、いずれ効かなくなる。
+       *   react-native-screens が対応したら、このキーを外して
+       *   丸枠ありの見た目に寄せ直すこと。
+       */
+      UIDesignRequiresCompatibility: true,
     },
   },
 

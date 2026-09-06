@@ -252,4 +252,52 @@ describe('地図を乱暴に動かす', () => {
       .filter(([name]) => name === 'posts_in_area')
     expect(opened).toEqual([])
   })
+
+  it('県の一覧にエリア名が紛れていても、それを県として開かない', async () => {
+    // ★ 実際にあった不具合の再現。
+    //   パンくずが「全国 › 東京都 › 神楽坂」になるはずのところ、
+    //   「全国 › 神楽坂」になり、0地域・計0件の行き止まりになっていた。
+    //   drill.prefecture にエリア名が入ってしまうと、
+    //   以後のエリア集計の絞り込み条件もエリア名で引くので、
+    //   どのバブルも出ず、そこから降りることもできない。
+    //
+    //   原因は「印は新しいのに中身は前の階層のまま」という一瞬で、
+    //   そこは regionsRef を1つにまとめて塞いだ。
+    //   ここで見張るのは、それをすり抜けたときの最後の砦——
+    //   降り先の名前が本当に県名かどうか——のほう。
+    //   県の集計にエリア名が返ってきたことにして、降りないことを確かめる。
+    mockRpc.mockImplementation((name: string, params: Record<string, unknown>) => {
+      if (name === 'map_pins') return Promise.resolve({ data: [], error: null })
+      if (params?.p_level === 'prefecture') {
+        return Promise.resolve({
+          data: [{ name: '神楽坂', center_lat: 35.7018, center_lng: 139.7405, post_count: 7 }],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: [], error: null })
+    })
+
+    await renderMap()
+
+    // バブルが実際に入るまで待つ。待たないと空のまま(length === 0 で即 return)
+    // 試すことになり、ガードを外しても通ってしまう。
+    await waitFor(() => {
+      expect(
+        mockRpc.mock.calls.some(
+          ([n, p]) => n === 'post_counts_by_region' && p?.p_level === 'prefecture'
+        )
+      ).toBe(true)
+    })
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    const before = mockRpc.mock.calls.length
+    await moveTo(1.0)   // 県 → エリアへ降りようとする
+
+    // エリアの集計を取りに行っていないこと。
+    // 行っていれば、エリア名（神楽坂）を県として開いている。
+    const descended = mockRpc.mock.calls
+      .slice(before)
+      .filter(([n, p]) => n === 'post_counts_by_region' && p?.p_level === 'area')
+    expect(descended).toEqual([])
+  })
 })

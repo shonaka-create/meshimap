@@ -13,6 +13,7 @@ import { useLocation } from '../../src/hooks/useLocation'
 import { MAP_PROVIDER } from '../../src/lib/mapProvider'
 import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types'
 import { toPost } from '../../src/lib/posts'
+import { PREFECTURE_BY_NAME } from '../../src/lib/regions'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
 import { RankAvatar } from '../../src/components/RankAvatar'
 import {
@@ -54,6 +55,10 @@ const LEVEL_LABEL: Record<RegionLevel, string> = {
  * Marker の子ビューを毎回まとめて外すことになり、
  * 地図が動いている最中だと危ない（index.tsx の取得処理のコメント参照）。
  * 消す代わりに、この印が現在の条件と一致するまで降りないようにする。
+ *
+ * ★ 印とバブルの中身は、必ず同時に書き換えること（regionsRef）。
+ *   別々に持つと「印は新しいのに中身は前の階層のまま」という
+ *   一瞬が生まれ、この見張りをすり抜ける。
  */
 const regionKeyOf = (d: Drill, genre: string) =>
   `${d.level}:${d.level === 'area' ? d.prefecture : ''}:${genre}`
@@ -287,15 +292,22 @@ export default function HomeMap() {
       })
       if (cancelled) return
 
-      if (error) {
-        console.warn('[home] 地域集計に失敗', error.message)
-        setRegions([])
-      } else {
-        setRegions((data ?? []) as RegionCount[])
-      }
+      // ★ 中身と印は必ず同時に入れること。
+      //   以前は一覧を state から effect 経由で ref に写し、
+      //   印だけをここで書いていた。書く時点がずれるので、
+      //   取得が終わってから effect が走るまでの一瞬だけ
+      //   「印は新しいのに中身は前の階層のまま」になる。
+      //   その隙に地図の移動が1回入ると、県の一覧のつもりで
+      //   前の階層のエリア名を掴み、drill.prefecture に
+      //   「神楽坂」のようなエリア名が入っていた。
+      //   パンくずが「全国 › 神楽坂」になり、0地域の行き止まりになる。
+      const list = error ? [] : ((data ?? []) as RegionCount[])
+      if (error) console.warn('[home] 地域集計に失敗', error.message)
+
       // 中身が「いまの階層・ジャンルのもの」になった印。
       // これが合うまで、ピンチで降りる判定はしない。
-      regionsKeyRef.current = key
+      regionsRef.current = { key, list }
+      setRegions(list)
       setLoadingRegions(false)
     }
 
@@ -455,25 +467,33 @@ export default function HomeMap() {
        * 寄っている以上、その1つが画面の主役になっているはず。
        * バブルが1つも無ければ降りない（降りた先が空になる）。
        */
-      if (regionsRef.current.length === 0) return
+      const { key: regionsKey, list } = regionsRef.current
+      if (list.length === 0) return
 
       // ★ いま出ているバブルが、いまの階層・ジャンルの集計でなければ降りない。
       //   取得は非同期なので、階層やジャンルを変えた直後は
       //   前の条件のバブルがまだ残っている。それを降り先に選ぶと、
       //   いま出ていないエリア（ひどい場合は県名を「エリア」として）
       //   開いてしまい、投稿0件の行き止まりに取り残される。
-      if (regionsKeyRef.current !== regionKeyOf(drill, genre)) return
+      if (regionsKey !== regionKeyOf(drill, genre)) return
 
       const center = { lat: region.latitude, lng: region.longitude }
-      let nearest = regionsRef.current[0]
+      let nearest = list[0]
       let best = roughDistance(center, { lat: nearest.center_lat, lng: nearest.center_lng })
 
-      for (const r of regionsRef.current) {
+      for (const r of list) {
         const dist = roughDistance(center, { lat: r.center_lat, lng: r.center_lng })
         if (dist < best) { best = dist; nearest = r }
       }
 
       if (drill.level === 'prefecture' && d < INTO_AREAS_DELTA) {
+        // ★ 県名でないものを drill.prefecture に入れないこと。
+        //   ここに入る値は、そのままパンくずの2つめとして出て、
+        //   以後のエリア集計の絞り込み条件にもなる。
+        //   エリア名が紛れ込むと「全国 › 神楽坂 / 0地域・計0件」という、
+        //   どのバブルも出ない行き止まりができる。
+        //   印の突き合わせだけに頼らず、名前そのものも見る。
+        if (!PREFECTURE_BY_NAME[nearest.name]) return
         setDrill({ level: 'area', prefecture: nearest.name })
         return
       }
@@ -502,12 +522,40 @@ export default function HomeMap() {
 
   /* ── 現在地に戻る ─────────────────────────────── */
   const recenter = useCallback(async () => {
+    /**
+     * ★ 実測を待ってからカメラを動かさないこと。
+     *
+     *   getCurrentPositionAsync(Accuracy.High) は衛星の測位を待つので、
+     *   屋外でも数秒、屋内なら打ち切りの10秒までかかる。
+     *   以前はそれを待ってから初めて寄せていたので、押しても
+     *   数秒のあいだ地図が一切動かず、くるくるが回るだけだった。
+     *   「押してから戻るまでが長い」の正体はこれ。
+     *
+     *   端末が覚えている位置は衛星を待たないので即座に返る。
+     *   起動時の寄せと同じ2段構えにして、まずそこへ動かし、
+     *   実測が返ったら寄せ直す。指を離した直後に地図が動きはじめ、
+     *   正確な位置には数秒後に落ち着く。
+     *
+     * ★ 精度は下げないこと。
+     *   locate() は投稿画面（近くのお店を探す）とも共用していて、
+     *   そちらは数百メートルのずれが致命的になる。
+     *   ここで直すのは「待たせ方」であって「精度」ではない。
+     */
+    const quick = await lastKnown()
+    if (quick) flyTo({ ...quick, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 400)
+
     // ★ 前に取った座標を使い回さないこと。
     //   使い回すと、押すたびに「起動したときの場所」へ飛ぶ。
     //   移動したあとに押した人には、ボタンが壊れているようにしか見えない。
     const c = await locate()
 
     if (!c) {
+      // ★ 覚えている位置で既に動かしてあるなら、黙って戻ること。
+      //   地図は現在地付近を映しているのに「取れませんでした」と
+      //   出すと、正しく動いたのに失敗したように見える。
+      //   （lastKnown も許可が要るので、quick があれば許可は下りている）
+      if (quick) return
+
       // 何も起きないと壊れて見える。断られているなら、そう言う。
       //
       // ★ 断られていないのに取れなかった場合も、黙って戻らないこと。
@@ -534,8 +582,9 @@ export default function HomeMap() {
       return
     }
 
-    flyTo({ ...c, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600)
-  }, [locate, permission, flyTo])
+    // 覚えている位置から寄せ直すぶんには、遠くへ飛ぶわけではないので短く。
+    flyTo({ ...c, latitudeDelta: 0.02, longitudeDelta: 0.02 }, quick ? 400 : 600)
+  }, [locate, lastKnown, permission, flyTo])
 
   const visiblePosts = useMemo(
     () => posts.filter((p) => genre === 'すべて' || p.genre === genre),
@@ -543,20 +592,17 @@ export default function HomeMap() {
   )
 
   /**
-   * いま出ているバブル。
+   * いま出ているバブルと、それがどの階層・ジャンルの集計か（regionKeyOf）。
    *
    * onRegionChangeComplete から読む。依存配列に regions を入れると、
    * バブルが差し替わるたびに関数が作り直されて MapView に渡る prop が
    * 変わり、地図が余計に描き直される。読むだけなので ref で持つ。
+   *
+   * ★ 中身と印を別々の入れ物に分けないこと。
+   *   分けると、片方だけ新しい一瞬ができる（取得処理のコメント参照）。
+   *   取得が終わった時点で、この1つを丸ごと差し替える。
    */
-  const regionsRef = useRef<RegionCount[]>([])
-  useEffect(() => { regionsRef.current = regions }, [regions])
-
-  /**
-   * regionsRef の中身が、どの階層・ジャンルの集計か。
-   * 取得が終わった時点で入れる。詳しくは regionKeyOf のコメント。
-   */
-  const regionsKeyRef = useRef('')
+  const regionsRef = useRef<{ key: string; list: RegionCount[] }>({ key: '', list: [] })
 
   /** 自分以外で地図に出ている人数。ボタンの文言に使う */
   const othersOnMap = useMemo(() => pins.filter((p) => !p.is_me).length, [pins])
@@ -886,8 +932,17 @@ function Crumb({
  * 自分・フォロー中の人のアイコン。
  *
  * Snap Map と違って現在地ではなく「最後に投稿したお店」に立つ。
- * 位置を追跡しないぶん、いつの情報なのかが分かりにくいので、
- * 経過時間を添えて誤解を防ぐ。
+ *
+ * ★ 名前や店名を並べないこと。
+ *   以前はアイコンの横に「アカウント名／◯日前 · 店名」を出していた。
+ *   地図の上に人の名前の札が立つと、地図ではなく名簿に見えるうえ、
+ *   ピンが2つ3つ近くにあるだけで札同士が重なり、
+ *   下の地形も他のピンも読めなくなる。
+ *   誰なのかは押せば分かる（プロフィールへ飛ぶ）。
+ *
+ *   「いつの位置か」の説明は、この札ではなく
+ *   プライバシーポリシー（legal/content.ts）と
+ *   「誰の地図を出す」の引き出しが受け持つ。
  */
 function FriendPin({ pin }: { pin: MapPin }) {
   const { colors } = useTheme()
@@ -907,35 +962,12 @@ function FriendPin({ pin }: { pin: MapPin }) {
           emoji={pin.avatar_emoji}
           name={pin.display_name}
           rank={rank}
-          size={44}
+          size={40}
         />
-        <View style={{ maxWidth: 108 }}>
-          {/* 自分のピンも他の人と同じくアカウント名で出す。
-              「じぶん」だけ表記が変わると、地図の上で
-              自分の投稿だけ別のものが立っているように見えた。 */}
-          <Txt variant="smallMed" numberOfLines={1}>
-            {pin.display_name}
-          </Txt>
-          <Txt variant="caption" tone="muted" numberOfLines={1}>
-            {timeAgo(pin.posted_at)} · {pin.location_name}
-          </Txt>
-        </View>
       </View>
       <View style={[styles.friendTail, { borderTopColor: colors.surface }]} />
     </View>
   )
-}
-
-/** 「3時間前」程度のざっくり表示。分単位まで出すと位置追跡だと誤解されるので出さない。 */
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const hours = Math.floor(diff / 3_600_000)
-  if (hours < 1) return 'さっき'
-  if (hours < 24) return `${hours}時間前`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}日前`
-  const months = Math.floor(days / 30)
-  return months < 12 ? `${months}か月前` : `${Math.floor(months / 12)}年前`
 }
 
 /** 地域ごとの投稿数バブル */
@@ -1136,14 +1168,10 @@ const styles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },
+  /** アイコンを白い縁で囲むだけ。文字は入れない（FriendPin のコメント参照） */
   friendCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    paddingRight: space.md,
-    borderRadius: radius.sm,
+    padding: 3,
+    borderRadius: radius.pill,
     borderWidth: 1,
   },
   friendTail: {

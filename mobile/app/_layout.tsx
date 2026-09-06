@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { View } from 'react-native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -36,10 +35,34 @@ function RootNavigator() {
      */
     const inPublicGroup = inAuthGroup || segments[0] === 'legal'
 
+    /**
+     * ★ 画面を積んだまま入れ替えないこと。
+     *
+     *   ログアウトは設定画面から呼ばれる。設定は (tabs) の上に
+     *   積まれているので、そこで replace すると置き換わるのは
+     *   いちばん上の1枚だけで、下にいる (tabs) はそのまま残る。
+     *   ログイン画面の裏で、前のアカウントのタブ——地図つき——が
+     *   生きたまま動き続けていた。
+     *
+     *   その状態で別のアカウントに入ると、replace はまた
+     *   いちばん上を置き換えるだけなので、スタックが
+     *   [(tabs), (tabs)] になる。MapView が2枚同時に生きる。
+     *   react-native-maps は新アーキテクチャ(Fabric)に非対応で
+     *   互換層越しに動いているため、地図を2枚重ねた時点で落ちる。
+     *   「ログアウトして別のアカウントに入った瞬間に落ちる」の正体はこれ。
+     *
+     *   積んである画面を全部畳んでから入れ替える。こうすれば
+     *   前のアカウントの画面は確実に外れ、スタックは常に1枚で済む。
+     */
+    const resetTo = (href: '/(auth)/sign-in' | '/(tabs)') => {
+      if (router.canDismiss()) router.dismissAll()
+      router.replace(href)
+    }
+
     if (!user && !inPublicGroup) {
-      router.replace('/(auth)/sign-in')
+      resetTo('/(auth)/sign-in')
     } else if (user && inAuthGroup) {
-      router.replace('/(tabs)')
+      resetTo('/(tabs)')
     }
   }, [user, loading, segments, router])
 
