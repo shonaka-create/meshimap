@@ -77,7 +77,20 @@ WITH checks (ord, migration, kind, label, present) AS (
     -- 0005 のフォロー上限トリガーは 0013 で落ちる。残っていたら 0013 が未適用。
     (24, '0013 地図に出す人数の線引き', 'トリガー', 'フォロー上限が外れているか',
         NOT EXISTS (SELECT 1 FROM pg_trigger
-                     WHERE NOT tgisinternal AND tgname = 'trg_enforce_follow_limit'))
+                     WHERE NOT tgisinternal AND tgname = 'trg_enforce_follow_limit')),
+    (25, '0019 地図に出す投稿の絞り込み', '関数', 'posts_in_area',
+        to_regproc('public.posts_in_area') IS NOT NULL),
+    (26, '0020 地域の代表写真/人ごとの地図', '列', 'profiles.header_url',
+        EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='profiles' AND column_name='header_url')),
+    (27, '0020 地域の代表写真/人ごとの地図', '関数', 'post_counts_by_region(text,text,text,uuid)',
+        to_regprocedure('public.post_counts_by_region(text,text,text,uuid)') IS NOT NULL),
+    -- ★ 旧シグネチャを残さないこと。PostgREST の呼び出しが曖昧になる。
+    (28, '0020 地域の代表写真/人ごとの地図', '関数', '旧 post_counts_by_region(text,text,text) が削除済みか',
+        to_regprocedure('public.post_counts_by_region(text,text,text)') IS NULL),
+    -- ★ 0002 の2引数版はフォローの絞り込みが無い。残っていたら 0020 が未適用。
+    (29, '0020 地域の代表写真/人ごとの地図', '関数', '旧 post_counts_by_region(text,text) が削除済みか',
+        to_regprocedure('public.post_counts_by_region(text,text)') IS NULL)
 )
 SELECT
   migration        AS "移行",

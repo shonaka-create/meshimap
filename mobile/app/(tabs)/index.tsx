@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import MapView, { Marker, type MapPressEvent, type Region } from 'react-native-maps'
+import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { useFocusEffect, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import {
@@ -20,6 +21,7 @@ import {
   CloudTransition, CLEAR_MS, COVER_MS, type CloudTransitionHandle,
 } from '../../src/components/CloudTransition'
 import { MapAudienceDrawer } from '../../src/components/MapAudienceDrawer'
+import { MapStoryRow } from '../../src/components/MapStoryRow'
 import { useAuth } from '../../src/hooks/useAuth'
 import { RANKS } from '../../src/lib/rank'
 
@@ -59,9 +61,17 @@ const LEVEL_LABEL: Record<RegionLevel, string> = {
  * ★ 印とバブルの中身は、必ず同時に書き換えること（regionsRef）。
  *   別々に持つと「印は新しいのに中身は前の階層のまま」という
  *   一瞬が生まれ、この見張りをすり抜ける。
+ *
+ * ★ 絞り込み中の人（focus）も印に入れること。
+ *   人を切り替えた直後は、前の人（または全員）のバブルが残っている。
+ *   それを降り先に選ぶと、選んだ人の投稿が無いエリアを開いて行き止まりになる。
  */
-const regionKeyOf = (d: Drill, genre: string) =>
-  `${d.level}:${d.level === 'area' ? d.prefecture : ''}:${genre}`
+const regionKeyOf = (d: Drill, genre: string, focus: string | null) =>
+  `${d.level}:${d.level === 'area' ? d.prefecture : ''}:${genre}:${focus ?? ''}`
+
+/** DBがまだ新しい引数（移行 0020 の p_user）を知らないときのエラーか */
+const isMissingFunctionError = (message: string | undefined) =>
+  !!message && (message.includes('Could not find the function') || message.includes('PGRST202'))
 
 /**
  * 引いたときに1階層上へ戻すしきい値（latitudeDelta）。
@@ -137,6 +147,28 @@ export default function HomeMap() {
    */
   const { user } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  /**
+   * 「この人の地図だけを見る」の相手。null なら地図に出ている全員。
+   *
+   * 下のストーリーの列（MapStoryRow）から選ぶ。
+   * バブル・投稿ピン・人のアイコンの3つを同じ人で絞る。
+   *
+   * ★ 絞り込みは DB に渡すこと（p_user / 移行 0020）。
+   *   端末で posts を filter すると、バブルの数字（DBの集計）と
+   *   開いたときの投稿が食い違う。0019 で揃えた理由と同じ。
+   */
+  const [focusUser, setFocusUser] = useState<string | null>(null)
+  /**
+   * いま選ばれている人の最新値。
+   *
+   * ★ 雲の演出のあとで走る処理（onRegionPress の advance）は、これを読むこと。
+   *   advance は押した瞬間の関数に閉じ込められて、雲が覆いきってから走る。
+   *   その間にストーリーの列で人を切り替えると、state の focusUser は
+   *   押した時点のまま残っていて、見出しは新しい人なのにピンは前の人、になる。
+   *   書き換えるのは selectPerson と「まだ使えません」で戻すところだけ。
+   */
+  const focusRef = useRef<string | null>(null)
 
   /**
    * こちらから動かしたカメラを、ユーザーのズーム操作と取り違えないための猶予。
@@ -261,7 +293,7 @@ export default function HomeMap() {
   /* ── 階層に応じた投稿数を取得 ─────────────────────── */
   useEffect(() => {
     let cancelled = false
-    const key = regionKeyOf(drill, genre)
+    const key = regionKeyOf(drill, genre, focusUser)
 
     const load = async () => {
       setLoadingRegions(true)
@@ -289,8 +321,23 @@ export default function HomeMap() {
         p_level: drill.level,
         p_prefecture: drill.level === 'area' ? drill.prefecture : null,
         p_genre: genre === 'すべて' ? null : genre,
+        // ★ 人を選んでいないときは p_user を渡さないこと。
+        //   0020 を流す前のDBは p_user を知らず、渡しただけで関数が
+        //   見つからないエラーになる。渡さなければ従来どおり動く。
+        ...(focusUser ? { p_user: focusUser } : {}),
       })
       if (cancelled) return
+
+      if (error && focusUser && isMissingFunctionError(error.message)) {
+        // アプリだけ先に更新された。黙って空の地図を出すと壊れて見えるので、そう言って全員に戻す
+        Alert.alert(
+          'まだ使えません',
+          'アプリの更新に対してデータベース側の準備が終わっていません。しばらくしてからお試しください。'
+        )
+        focusRef.current = null
+        setFocusUser(null)
+        return
+      }
 
       // ★ 中身と印は必ず同時に入れること。
       //   以前は一覧を state から effect 経由で ref に写し、
@@ -313,7 +360,7 @@ export default function HomeMap() {
 
     load()
     return () => { cancelled = true }
-  }, [drill, genre])
+  }, [drill, genre, focusUser])
 
   /* ── 自分とフォロー中の人のアイコンを取得 ─────────────
    * 現在地ではなく「最後に投稿したお店」の座標。
@@ -331,9 +378,21 @@ export default function HomeMap() {
 
   useFocusEffect(useCallback(() => { loadPins() }, [loadPins]))
 
+  /**
+   * エリアの投稿取得の通し番号。
+   *
+   * ★ 返ってきた結果が「いちばん新しい依頼」のものか確かめること。
+   *   人を続けて切り替えたり、開いてすぐ引いたりすると、
+   *   前の依頼の結果があとから届いて、別の人・閉じたエリアの
+   *   ピンで上書きされる。
+   */
+  const postsSeq = useRef(0)
+
   /* ── エリアを選んだら、その中の投稿を取得 ───────────── */
   const loadPostsForArea = useCallback(
-    async (prefecture: string, area: string) => {
+    async (prefecture: string, area: string, focus: string | null) => {
+      const seq = ++postsSeq.current
+
       // ★ 先に階層を切り替えること。
       //   openArea を取得のあとに立てていたので、投稿が返ってくるまでの
       //   あいだ地域バブル（数字）が最下層に残り続けていた。
@@ -356,7 +415,11 @@ export default function HomeMap() {
       const { data, error } = await supabase.rpc('posts_in_area', {
         p_prefecture: prefecture,
         p_area: area,
+        // 人を選んでいないときは渡さない（0020 前のDBでも動くように）
+        ...(focus ? { p_user: focus } : {}),
       })
+
+      if (seq !== postsSeq.current) return
 
       if (error) {
         // ★ 先に降ろした階層を戻すこと。
@@ -395,8 +458,9 @@ export default function HomeMap() {
         if (drill.level === 'prefecture') {
           setDrill({ level: 'area', prefecture: r.name })
         } else {
-          // 最下層。エリアを選んだので個々の投稿ピンに切り替える
-          loadPostsForArea(drill.prefecture, r.name)
+          // 最下層。エリアを選んだので個々の投稿ピンに切り替える。
+          // 人は押した時点ではなく、いま（雲が覆いきった時点）の選択で取る（focusRef のコメント参照）
+          loadPostsForArea(drill.prefecture, r.name, focusRef.current)
         }
       }
 
@@ -448,6 +512,7 @@ export default function HomeMap() {
 
       if (openArea !== null) {
         if (d > BACK_TO_AREAS_DELTA) {
+          postsSeq.current++   // 取得中の結果が、閉じたあとに届いても使わない
           setPosts([])
           setOpenArea(null)
           setSelectedPost(null)
@@ -475,7 +540,7 @@ export default function HomeMap() {
       //   前の条件のバブルがまだ残っている。それを降り先に選ぶと、
       //   いま出ていないエリア（ひどい場合は県名を「エリア」として）
       //   開いてしまい、投稿0件の行き止まりに取り残される。
-      if (regionsKey !== regionKeyOf(drill, genre)) return
+      if (regionsKey !== regionKeyOf(drill, genre, focusUser)) return
 
       const center = { lat: region.latitude, lng: region.longitude }
       let nearest = list[0]
@@ -499,14 +564,50 @@ export default function HomeMap() {
       }
 
       if (drill.level === 'area' && d < INTO_POSTS_DELTA) {
-        loadPostsForArea(drill.prefecture, nearest.name)
+        loadPostsForArea(drill.prefecture, nearest.name, focusUser)
       }
     },
-    [openArea, drill, genre, loadPostsForArea]
+    [openArea, drill, genre, focusUser, loadPostsForArea]
   )
+
+  /* ── 人を選ぶ（ストーリーの列）─────────────────────
+   * 階層とカメラはそのまま。バブルは上の取得処理が focusUser で取り直す。
+   * エリアを開いている最中なら、その場で投稿ピンだけ取り直す。
+   *
+   * ★ カメラを勝手に動かさないこと。
+   *   その人の最後のお店まで飛ぶと、寄った高さで「降りる」判定が走り、
+   *   選んだだけで階層まで変わってしまう。
+   */
+  const selectPerson = useCallback(
+    (id: string | null) => {
+      focusRef.current = id
+      setFocusUser(id)
+      setSelectedPost(null)
+      if (openArea !== null && drill.level === 'area') {
+        loadPostsForArea(drill.prefecture, openArea, id)
+      }
+    },
+    [openArea, drill, loadPostsForArea]
+  )
+
+  /**
+   * マイページの「みんなの地図」から、人を指定して開かれたとき。
+   * 受け取ったら引数は消す。残すと、同じ人をもう一度押しても変化が起きず、
+   * 地図側で絞り込みを外したあと別タブから戻るたびに、また絞られる。
+   *
+   * 別タブから来るので、必ずこの画面に焦点が移る。そのときに1回だけ読めば足りる
+   * （ピンの取り直しと同じ useFocusEffect に揃える）。
+   */
+  const { focus: focusParam } = useLocalSearchParams<{ focus?: string }>()
+  useFocusEffect(useCallback(() => {
+    if (!focusParam) return
+    selectPerson(focusParam)
+    router.setParams({ focus: undefined })
+  }, [focusParam, selectPerson, router]))
 
   /* ── パンくずで上の階層へ戻る ───────────────────── */
   const goToPrefectures = useCallback(() => {
+    postsSeq.current++
     setPosts([])
     setOpenArea(null)
     setSelectedPost(null)
@@ -515,6 +616,7 @@ export default function HomeMap() {
   }, [flyTo])
 
   const goToAreas = useCallback(() => {
+    postsSeq.current++
     setPosts([])
     setOpenArea(null)
     setSelectedPost(null)
@@ -604,8 +706,23 @@ export default function HomeMap() {
    */
   const regionsRef = useRef<{ key: string; list: RegionCount[] }>({ key: '', list: [] })
 
-  /** 自分以外で地図に出ている人数。ボタンの文言に使う */
-  const othersOnMap = useMemo(() => pins.filter((p) => !p.is_me).length, [pins])
+  /** 人を選んでいる間は、その人のアイコンだけを出す */
+  const visiblePins = useMemo(
+    () => (focusUser ? pins.filter((p) => p.user_id === focusUser) : pins),
+    [pins, focusUser]
+  )
+
+  /**
+   * 選んでいる人の呼び名。上の見出しに出す。
+   * アイコンがまだ取れていない（マイページから直接来た直後など）ときは名前が分からないので、
+   * 名前無しでも意味が通る文言にする。
+   */
+  const focusLabel = useMemo(() => {
+    if (!focusUser) return null
+    const pin = pins.find((p) => p.user_id === focusUser)
+    if (!pin) return 'えらんだ人の地図'
+    return pin.is_me ? '自分の地図' : `${pin.display_name}の地図`
+  }, [pins, focusUser])
 
   const totalCount = useMemo(
     () => regions.reduce((sum, r) => sum + Number(r.post_count), 0),
@@ -633,40 +750,32 @@ export default function HomeMap() {
       >
         {showRegionBubbles &&
           regions.map((r) => (
-            <TrackedMarker
+            <RegionMarker
               // ★ key は地域名だけにすること。
               //   階層やジャンルを混ぜると、ジャンルを変えただけで
               //   同じ地域のバブルまで作り直しになる（Marker の子の外し直し）。
-              //   数字が変わるだけなら redraw で描き直せば足りる。
+              //   数字や代表写真が変わるだけなら redraw で描き直せば足りる。
               key={r.name}
-              redraw={`${r.name}-${r.post_count}`}
-              coordinate={{ latitude: r.center_lat, longitude: r.center_lng }}
+              region={r}
               onPress={() => { markMarkerPress(); onRegionPress(r) }}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <RegionBubble name={r.name} count={Number(r.post_count)} />
-            </TrackedMarker>
+            />
           ))}
 
         {!showRegionBubbles &&
           visiblePosts.map((p) => (
-            <TrackedMarker
-              // 選択で見た目が変わるので、変わったら絵を取り直させる。
+            <PostMarker
               // ★ ここで key を変えないこと。押した瞬間にそのピンを
               //   作り直すことになり、いちばん落ちやすい操作になる。
               key={p.id}
-              redraw={selectedPost?.id === p.id ? 'on' : 'off'}
-              coordinate={{ latitude: p.location_lat, longitude: p.location_lng }}
+              post={p}
+              selected={selectedPost?.id === p.id}
               onPress={() => { markMarkerPress(); setSelectedPost(p) }}
-              anchor={{ x: 0.5, y: 1 }}
-            >
-              <PostPin genre={p.genre} selected={selectedPost?.id === p.id} />
-            </TrackedMarker>
+            />
           ))}
 
         {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
         {showPins &&
-          pins.map((pin) => (
+          visiblePins.map((pin) => (
             <TrackedMarker
               // 写真が入れ替わったら絵を取り直させる（key ではなく redraw で）
               key={`pin-${pin.user_id}`}
@@ -719,11 +828,28 @@ export default function HomeMap() {
             {loadingRegions && showRegionBubbles ? (
               <ActivityIndicator size="small" color={colors.textFaint} />
             ) : (
-              <Txt variant="small" tone="muted">
+              <Txt variant="small" tone="muted" style={{ flex: 1 }} numberOfLines={1}>
+                {focusLabel ? `${focusLabel} · ` : ''}
                 {openArea
                   ? `${visiblePosts.length}件の投稿`
                   : `${LEVEL_LABEL[drill.level]}別 · ${regions.length}地域 · 計${totalCount}件`}
               </Txt>
+            )}
+
+            {/* ★ 絞り込みを外す手段を、ストーリーの列とは別にここにも置くこと。
+                  選んだ人を引き出しで地図から外すと、列からその人が消え、
+                  押し直して戻す場所が無くなる。 */}
+            {focusUser && (
+              <Pressable
+                onPress={() => selectPerson(null)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="みんなの地図に戻す"
+                style={({ pressed }) => [styles.clearFocus, { opacity: pressed ? 0.5 : 1 }]}
+              >
+                <Txt variant="smallMed" tone="accent">みんなに戻す</Txt>
+                <Ionicons name="close" size={14} color={colors.accent} />
+              </Pressable>
             )}
           </View>
         </View>
@@ -806,26 +932,20 @@ export default function HomeMap() {
         )}
       </Pressable>
 
-      {/* ── 左下: 誰の地図を見るか ───────────────────── */}
-      <Pressable
-        onPress={() => setDrawerOpen(true)}
-        style={({ pressed }) => [
-          styles.audienceBtn,
-          shadow.float,
-          {
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
-            bottom: insets.bottom + space.xl,
-            opacity: pressed ? 0.85 : 1,
-          },
+      {/* ── 左下: みんなの地図（ストーリーの列）─────────────
+        * 左の黒い札で「誰を地図に出すか」の引き出し、
+        * 右のアイコンで「いまこの人の地図だけ見る」。
+        * 右端は現在地ボタンの列と重ならないよう、その幅だけ空ける。 */}
+      <MapStoryRow
+        pins={pins}
+        selectedId={focusUser}
+        onSelect={selectPerson}
+        onOpenDrawer={() => setDrawerOpen(true)}
+        style={[
+          styles.storyRow,
+          { bottom: insets.bottom + space.xl - 8 },
         ]}
-        accessibilityLabel="誰の地図を出すかを選ぶ"
-      >
-        <Ionicons name="people-outline" size={17} color={colors.text} />
-        <Txt variant="smallMed" style={{ letterSpacing: 0.6 }}>
-          {othersOnMap > 0 ? `${othersOnMap}人の地図` : '他の人の地図'}
-        </Txt>
-      </Pressable>
+      />
 
       <MapAudienceDrawer
         visible={drawerOpen}
@@ -970,72 +1090,179 @@ function FriendPin({ pin }: { pin: MapPin }) {
   )
 }
 
-/** 地域ごとの投稿数バブル */
-function RegionBubble({ name, count }: { name: string; count: number }) {
+/**
+ * 写真の読み込み状態を持つ小さな入れ物。
+ *
+ * ★ 地図のピンに写真を載せるときは、読み込めた瞬間に絵を取り直させること。
+ *   Marker の絵は tracksViewChanges を落とした時点で焼き付く。
+ *   写真はネットから遅れて届くので、置いた直後の 600ms で止めると
+ *   白い丸のまま焼き付く（TrackedMarker のコメント参照）。
+ *   読めたら redraw を変えて、もう一度だけ取り直させる。
+ *
+ * ★ 読めなかった写真は捨てて、写真なしの見た目に戻すこと。
+ *   消えた画像のURLが残っていると、灰色の丸が地図に並ぶだけになる。
+ */
+function usePhotoState(url: string | null | undefined) {
+  const [loaded, setLoaded] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const photo = url && url !== failed ? url : null
+  return {
+    photo,
+    ready: !!photo && loaded === photo,
+    onLoad: () => setLoaded(photo),
+    onError: () => setFailed(photo),
+  }
+}
+
+/**
+ * 地域のバブル。
+ *
+ * 代表写真（その地域で表示回数がいちばん多い投稿の写真 / 移行 0020）があれば
+ * 写真を大きく出し、右上に投稿数を置く。写真が無い地域と、0020 前のDBでは
+ * 従来どおり数字のバブルで出す。
+ *
+ * ★ Marker の直下の View は、写真あり・なしで入れ替えないこと。
+ *   直下の子を別の部品に差し替えると Marker の子を外して付け直すことになり、
+ *   react-native-maps がいちばん落ちやすい操作になる（TrackedMarker のコメント参照）。
+ *   直下は常に同じ View にして、その内側だけを切り替える。
+ */
+function RegionMarker({ region, onPress }: { region: RegionCount; onPress: () => void }) {
   const { colors } = useTheme()
+  const count = Number(region.post_count)
+  const { photo, ready, onLoad, onError } = usePhotoState(region.cover_url)
 
   // 件数が多いほど少しだけ大きくする（対数で頭打ちにする）
-  const size = Math.min(72, 44 + Math.log2(count + 1) * 6)
+  const bubbleSize = Math.min(72, 44 + Math.log2(count + 1) * 6)
+  const photoSize = Math.min(84, 54 + Math.log2(count + 1) * 7)
 
   return (
-    <View style={{ alignItems: 'center' }}>
-      {/* ベタ塗りの丸をやめ、白地に細い罫線。数字は明朝で置く。
-          地図の上で色の面が動くと安っぽく見えるため。 */}
-      <View
-        style={[
-          styles.bubble,
-          shadow.card,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.borderStrong,
-          },
-        ]}
-      >
-        <Txt variant="title" style={{ fontSize: size * 0.34, lineHeight: size * 0.42 }}>
-          {count}
-        </Txt>
+    <TrackedMarker
+      redraw={`${region.name}-${count}-${photo ?? ''}-${ready ? 1 : 0}`}
+      coordinate={{ latitude: region.center_lat, longitude: region.center_lng }}
+      onPress={onPress}
+      anchor={{ x: 0.5, y: 0.5 }}
+    >
+      <View style={{ alignItems: 'center' }}>
+        {photo ? (
+          // 件数のバッジが写真の外にはみ出す。Marker の絵は直下の View の枠で
+          // 切られるので、はみ出す分の余白を先に取っておく。
+          <View style={{ width: photoSize + BADGE_OVERHANG * 2, height: photoSize + BADGE_OVERHANG, justifyContent: 'flex-end', alignItems: 'center' }}>
+            <View
+              style={[
+                styles.photoFrame,
+                shadow.card,
+                {
+                  width: photoSize,
+                  height: photoSize,
+                  borderRadius: photoSize / 2,
+                  borderColor: colors.pinStroke,
+                  backgroundColor: colors.surfaceAlt,
+                },
+              ]}
+            >
+              <Image
+                source={{ uri: photo }}
+                style={styles.photoFill}
+                contentFit="cover"
+                onLoad={onLoad}
+                onError={onError}
+              />
+            </View>
+            {count > 1 && (
+              <View style={[styles.countBadge, { backgroundColor: colors.text, borderColor: colors.pinStroke }]}>
+                <Txt variant="smallMed" style={{ color: colors.bg, lineHeight: 16 }}>
+                  {count > 999 ? '999+' : count}
+                </Txt>
+              </View>
+            )}
+          </View>
+        ) : (
+          /* ベタ塗りの丸をやめ、白地に細い罫線。数字は明朝で置く。
+             地図の上で色の面が動くと安っぽく見えるため。 */
+          <View
+            style={[
+              styles.bubble,
+              shadow.card,
+              {
+                width: bubbleSize,
+                height: bubbleSize,
+                borderRadius: bubbleSize / 2,
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.borderStrong,
+              },
+            ]}
+          >
+            <Txt variant="title" style={{ fontSize: bubbleSize * 0.34, lineHeight: bubbleSize * 0.42 }}>
+              {count}
+            </Txt>
+          </View>
+        )}
+        <View style={[styles.bubbleLabel, { backgroundColor: colors.text }]}>
+          <Txt variant="caption" tone="inverse" numberOfLines={1}>{region.name}</Txt>
+        </View>
       </View>
-      <View style={[styles.bubbleLabel, { backgroundColor: colors.text }]}>
-        <Txt variant="caption" tone="inverse" numberOfLines={1}>{name}</Txt>
-      </View>
-    </View>
+    </TrackedMarker>
   )
 }
 
-/** 個々の投稿のピン */
-function PostPin({ genre, selected }: { genre: string; selected: boolean }) {
+/** 件数バッジが写真の縁からはみ出す量 */
+const BADGE_OVERHANG = 10
+
+/**
+ * 個々の投稿のピン。投稿の1枚目の写真を丸く切って立てる。
+ * 写真の無い投稿（と読めなかった写真）はジャンルの絵文字に戻す。
+ */
+function PostMarker({
+  post, selected, onPress,
+}: { post: Post; selected: boolean; onPress: () => void }) {
   const { colors } = useTheme()
-  const size = selected ? 48 : 40
+  const { photo, ready, onLoad, onError } = usePhotoState(post.images[0])
+  const size = selected ? 58 : 48
 
   return (
-    <View style={{ alignItems: 'center' }}>
-      <View
-        style={[
-          styles.pin,
-          shadow.card,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: colors.surface,
-            borderColor: selected ? colors.accent : colors.borderStrong,
-            borderWidth: selected ? 2 : 1,
-          },
-        ]}
-      >
-        <Txt style={{ fontSize: size * 0.45 }}>{GENRE_EMOJI[genre] ?? '🍴'}</Txt>
+    <TrackedMarker
+      // 選択で見た目が変わるので、変わったら絵を取り直させる
+      redraw={`${selected ? 'on' : 'off'}-${photo ?? ''}-${ready ? 1 : 0}`}
+      coordinate={{ latitude: post.location_lat, longitude: post.location_lng }}
+      onPress={onPress}
+      anchor={{ x: 0.5, y: 1 }}
+    >
+      <View style={{ alignItems: 'center' }}>
+        <View
+          style={[
+            styles.pin,
+            shadow.card,
+            {
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: colors.surface,
+              borderColor: selected ? colors.accent : colors.pinStroke,
+              borderWidth: selected ? 3 : 2,
+            },
+          ]}
+        >
+          {photo ? (
+            <Image
+              source={{ uri: photo }}
+              style={styles.photoFill}
+              contentFit="cover"
+              onLoad={onLoad}
+              onError={onError}
+            />
+          ) : (
+            <Txt style={{ fontSize: size * 0.45 }}>{GENRE_EMOJI[post.genre] ?? '🍴'}</Txt>
+          )}
+        </View>
+        <View
+          style={[
+            styles.pinTail,
+            { borderTopColor: selected ? colors.accent : colors.pinStroke },
+          ]}
+        />
       </View>
-      <View
-        style={[
-          styles.pinTail,
-          { borderTopColor: selected ? colors.accent : colors.pinStroke },
-        ]}
-      />
-    </View>
+    </TrackedMarker>
   )
 }
 
@@ -1127,18 +1354,14 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   breadcrumb: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  summary: { flexDirection: 'row', alignItems: 'center', minHeight: 18 },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 18 },
+  clearFocus: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   genreRow: { paddingHorizontal: space.lg, gap: space.sm, paddingVertical: space.xs },
-  audienceBtn: {
+  /** 右は現在地ボタン（52）とその余白ぶん空ける */
+  storyRow: {
     position: 'absolute',
     left: space.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    height: 52,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    right: space.lg + 52 + space.md,
   },
   fab: {
     position: 'absolute',
@@ -1157,7 +1380,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     maxWidth: 104,
   },
-  pin: { alignItems: 'center', justifyContent: 'center' },
+  pin: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photoFrame: { borderWidth: 3, overflow: 'hidden' },
+  photoFill: { width: '100%', height: '100%' },
+  countBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 6,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pinTail: {
     width: 0,
     height: 0,

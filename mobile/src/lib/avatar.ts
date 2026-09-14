@@ -108,6 +108,62 @@ export async function deleteAvatarByUrl(userId: string, publicUrl: string): Prom
   }
 }
 
+/** ヘッダー写真の幅(px)。画面幅いっぱいに出すので、アイコンより大きく持つ */
+const HEADER_EDGE = 1200
+
+/**
+ * マイページのヘッダー写真を1枚選ばせる。
+ *
+ * ★ allowsEditing を立てないこと。
+ *   iOS の切り抜き画面は aspect を無視して必ず正方形になる。
+ *   横長の帯に出す写真を正方形に切らせると、使える部分が細く残るだけになる。
+ *   切らずに受け取り、表示側の contentFit="cover" に任せる。
+ */
+export async function pickHeaderImage(): Promise<string | null> {
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+  if (!perm.granted) {
+    throw new Error('PHOTO_PERMISSION_DENIED')
+  }
+
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    quality: 1,
+  })
+
+  if (res.canceled) return null
+  // assets が空で返る場合がある（pickAvatarImage と同じ理由）
+  const uri = res.assets?.[0]?.uri
+  return uri ? uri : null
+}
+
+/**
+ * ヘッダー写真を縮めて上げ、公開URLを返す。
+ *
+ * ★ 置き場所はアイコンと同じ avatars バケットの `${uid}/header_*.jpg`。
+ *   移行 0014 のポリシー（先頭フォルダ = 自分のUID）でそのまま通り、
+ *   退会時の後片付け（storageCleanup.ts）もフォルダごと消すので漏れない。
+ *   前の写真を消すのは deleteAvatarByUrl がそのまま使える。
+ */
+export async function uploadHeader(userId: string, uri: string): Promise<string> {
+  const m = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: HEADER_EDGE } }],
+    { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+  )
+
+  const res = await fetch(m.uri)
+  const bytes = await res.arrayBuffer()
+
+  const path = `${userId}/header_${Date.now()}.jpg`
+
+  const { error } = await supabase.storage
+    .from('avatars')
+    .upload(path, bytes, { contentType: 'image/jpeg', upsert: true })
+  if (error) throw error
+
+  return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+}
+
 /** pickAvatarImage が投げた「写真の権限が無い」エラーか */
 export function isPhotoPermissionError(e: unknown): boolean {
   return (e as Error)?.message === 'PHOTO_PERMISSION_DENIED'

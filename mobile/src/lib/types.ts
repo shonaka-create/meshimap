@@ -29,6 +29,11 @@ export interface Profile {
   is_demo: boolean
   /** 選択中のアバター絵柄。ランクで解放される。null なら photo_url を使う */
   avatar_emoji: string | null
+  /**
+   * マイページ上部のヘッダー写真（移行 0020）。
+   * 省略可にしてあるのは、0020 を流す前のDBでは列そのものが無いため。
+   */
+  header_url?: string | null
   created_at: string
 }
 
@@ -107,6 +112,13 @@ export interface RegionCount {
   post_count: number
   center_lat: number
   center_lng: number
+  /**
+   * その地域の代表写真。表示回数がいちばん多い投稿の1枚目（移行 0020）。
+   * 写真付きの投稿が無い地域と、0020 を流す前のDBでは来ない。
+   * 無ければ従来どおり数字のバブルで出す。
+   */
+  cover_url?: string | null
+  cover_post_id?: string | null
 }
 
 export type FollowStatus = 'pending' | 'accepted'

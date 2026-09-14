@@ -19,7 +19,7 @@
  *   onRegionChangeComplete はネイティブが呼ぶものなので、
  *   テストからは掴んだ関数を直接呼んで再現する。
  */
-import { render, waitFor, act } from '@testing-library/react-native'
+import { render, waitFor, act, fireEvent, screen } from '@testing-library/react-native'
 
 /** 最後に描かれた MapView の props。テストから触るので mock 接頭辞が要る */
 const mockMapProps: { current: Record<string, unknown> | null } = { current: null }
@@ -299,5 +299,62 @@ describe('地図を乱暴に動かす', () => {
       .slice(before)
       .filter(([n, p]) => n === 'post_counts_by_region' && p?.p_level === 'area')
     expect(descended).toEqual([])
+  })
+})
+
+describe('みんなの地図（人で絞る）', () => {
+  const PIN = {
+    user_id: 'u2', username: 'kkobe', display_name: 'K',
+    photo_url: null, avatar_emoji: null, rank: 1, posts_count: 3, areas_count: 1,
+    location_name: 'テスト店', location_lat: 35.7, location_lng: 139.74,
+    posted_at: '2026-09-01T00:00:00.000Z', is_me: false,
+  }
+
+  beforeEach(() => {
+    const base = mockRpc.getMockImplementation()!
+    mockRpc.mockImplementation((name: string, params: Record<string, unknown>) =>
+      name === 'map_pins' ? Promise.resolve({ data: [PIN], error: null }) : base(name, params)
+    )
+  })
+
+  it('人を選んでいないときは p_user を送らない（0020 前のDBでも地図が出る）', async () => {
+    // ★ ここが崩れると、DBの移行より先にアプリが出た瞬間に、
+    //   全員の地図が「関数が見つからない」で空になる。
+    await renderMap()
+    await waitFor(() => {
+      expect(mockRpc.mock.calls.some(([n]) => n === 'post_counts_by_region')).toBe(true)
+    })
+
+    const counts = mockRpc.mock.calls.filter(([n]) => n === 'post_counts_by_region')
+    for (const [, params] of counts) {
+      expect(params).not.toHaveProperty('p_user')
+    }
+  })
+
+  it('アイコンを押すと、その人で絞って集計を取り直し、もう一度押すと戻る', async () => {
+    await renderMap()
+
+    const face = await screen.findByLabelText('Kの地図だけを見る')
+    const before = mockRpc.mock.calls.length
+    await act(async () => { fireEvent.press(face) })
+
+    await waitFor(() => {
+      expect(
+        mockRpc.mock.calls
+          .slice(before)
+          .some(([n, p]) => n === 'post_counts_by_region' && p?.p_user === 'u2')
+      ).toBe(true)
+    })
+
+    // 選択中は同じアイコンの文言が「戻す」に変わる。押すと p_user 無しで取り直す
+    const selected = await screen.findByLabelText('Kの地図をやめて、みんなの地図に戻す')
+    const mid = mockRpc.mock.calls.length
+    await act(async () => { fireEvent.press(selected) })
+
+    await waitFor(() => {
+      const after = mockRpc.mock.calls.slice(mid).filter(([n]) => n === 'post_counts_by_region')
+      expect(after.length).toBeGreaterThan(0)
+      expect(after[after.length - 1][1]).not.toHaveProperty('p_user')
+    })
   })
 })

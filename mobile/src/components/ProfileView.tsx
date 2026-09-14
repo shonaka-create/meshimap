@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, View,
   useWindowDimensions,
@@ -9,7 +9,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme, space, radius, GENRE_EMOJI } from '../theme'
-import { Button, EmptyState, Loading, Stat, Txt } from './ui'
+import { Avatar, Button, Chip, EmptyState, Loading, Stat, Txt } from './ui'
 import { ReportDialog } from './ReportDialog'
 import { RankAvatar, RankBadge } from './RankAvatar'
 import { AvatarEmojiPicker } from './AvatarEmojiPicker'
@@ -18,16 +18,67 @@ import { RankLadder } from './RankLadder'
 import { BILLING_READY } from '../lib/billing'
 import { DemoNotice } from './DemoNotice'
 import { FREE_MAP_LIMIT, isFollowLimitError } from '../lib/limits'
-import type { FollowStatus, Post, Profile } from '../lib/types'
+import type { FollowStatus, MapPin, Post, Profile } from '../lib/types'
 import { POST_SELECT, toPost } from '../lib/posts'
 import {
-  deleteAvatarByUrl, isPhotoPermissionError, pickAvatarImage, uploadAvatar,
+  deleteAvatarByUrl, isPhotoPermissionError, pickAvatarImage, pickHeaderImage,
+  uploadAvatar, uploadHeader,
 } from '../lib/avatar'
 
 interface Props {
   /** username で引く（他人のページ）か、自分のIDで引くか */
   username?: string
   selfId?: string
+}
+
+/** 「行ったエリア」「最近の投稿」を畳んでいるときに出す数（1列ぶん） */
+const PREVIEW_COUNT = 4
+/** 1列に並べる数。エリアのカードと投稿の写真で揃える */
+const COLUMNS = 4
+const GRID_GAP = 6
+/** 好きなジャンルとして出す数 */
+const TOP_GENRES = 4
+/** みんなの地図のカードに並べる顔の数 */
+const MAP_FACES = 8
+
+interface VisitedArea {
+  prefecture: string
+  count: number
+  /** そのエリアでいちばん見られている投稿の写真。写真付きの投稿が無ければ null */
+  cover: string | null
+}
+
+/** 投稿した都道府県ごとに、件数と代表写真をまとめる */
+function visitedAreasOf(posts: Post[]): VisitedArea[] {
+  const byPref = new Map<string, { count: number; best: Post | null }>()
+
+  for (const p of posts) {
+    if (!p.prefecture) continue
+    const cur = byPref.get(p.prefecture) ?? { count: 0, best: null }
+    cur.count += 1
+    // 代表は地図のバブルと同じ決め方（表示回数の多い、写真付きの投稿）
+    if (p.images[0] && (!cur.best || p.impressions_count > cur.best.impressions_count)) {
+      cur.best = p
+    }
+    byPref.set(p.prefecture, cur)
+  }
+
+  return [...byPref.entries()]
+    .map(([prefecture, v]) => ({ prefecture, count: v.count, cover: v.best?.images[0] ?? null }))
+    .sort((a, b) => b.count - a.count)
+}
+
+/** 投稿の多いジャンルから順に */
+function topGenresOf(posts: Post[]): string[] {
+  const counts = new Map<string, number>()
+  for (const p of posts) {
+    if (!p.genre || p.genre === 'その他') continue
+    counts.set(p.genre, (counts.get(p.genre) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, TOP_GENRES)
+    .map(([g]) => g)
 }
 
 export function ProfileView({ username, selfId }: Props) {
@@ -49,9 +100,15 @@ export function ProfileView({ username, selfId }: Props) {
   const [pickingEmoji, setPickingEmoji] = useState(false)
   /** アイコン写真の入れ替え中。押しっぱなしにさせないために持つ */
   const [savingPhoto, setSavingPhoto] = useState(false)
+  /** ヘッダー写真の入れ替え中 */
+  const [savingHeader, setSavingHeader] = useState(false)
+  /** 自分の地図に出ている人（みんなの地図のカード用）。自分のページでだけ取る */
+  const [mapPins, setMapPins] = useState<MapPin[]>([])
+  const [showAllAreas, setShowAllAreas] = useState(false)
+  const [showAllPosts, setShowAllPosts] = useState(false)
 
   const isOwn = !!selfId || (!!profile && profile.id === user?.id)
-  const cell = (width - 4) / 3
+  const cell = (width - space.lg * 2 - GRID_GAP * (COLUMNS - 1)) / COLUMNS
 
   const load = useCallback(async () => {
     // プロフィール本体
@@ -95,6 +152,14 @@ export function ProfileView({ username, selfId }: Props) {
         .eq('following_id', prof.id)
         .maybeSingle()
       setFollowStatus((f?.status as FollowStatus) ?? null)
+    }
+
+    // みんなの地図のカード（自分のページだけ）。
+    // 失敗してもカードの顔が並ばないだけなので、画面は止めない。
+    if (user && prof.id === user.id) {
+      const { data: pins, error: pinsErr } = await supabase.rpc('map_pins')
+      if (pinsErr) console.warn('[profile] 地図の人を取得できませんでした', pinsErr.message)
+      else setMapPins((pins ?? []) as MapPin[])
     }
 
     // 投稿。非公開アカウントかつ未フォローなら RLS で 0 件になる。
@@ -156,7 +221,7 @@ export function ProfileView({ username, selfId }: Props) {
             Alert.alert(
               'フォローしました',
               `地図に同時に出せるのは${FREE_MAP_LIMIT}人までなので、この人はまだ地図に出ていません。`
-                + '\n地図の左下「他の人の地図」から、出す人を入れ替えられます。'
+                + '\n地図の左下「みんなの地図」から、出す人を入れ替えられます。'
                 + (BILLING_READY
                   ? '\nプレミアムにすると、フォローした人を全員そのまま地図に出せます。'
                   : ''),
@@ -254,6 +319,7 @@ export function ProfileView({ username, selfId }: Props) {
    *   プロフィールを開くたびに必ずクラッシュしていた原因がこれ。
    *
    *   profile が null の間も評価されるので、中では profile?. で触ること。
+   *   下のヘッダー写真・一覧の集計（useMemo）も同じ理由でここより前に置く。
    */
   /** 写真を選び直す。保存が通ってから前の画像を消す */
   const replacePhoto = useCallback(async () => {
@@ -329,12 +395,10 @@ export function ProfileView({ username, selfId }: Props) {
    * 設定 → プロフィールを編集 → 写真を変更、と3階層潜る必要があった。
    * アイコンを押したら、そこで写真も絵柄も変えられるのが素直。
    *
-   * ★ 「プロフィールを編集」もここに入れてある。
-   *   以前は写真の下に同じ名前のボタンを1つ並べていたが、
-   *   自分のプロフィールで押す場所が「アイコン」と「そのすぐ下のボタン」の
-   *   2箇所に割れていて、どちらが何を変えるのか見て分からなかった。
-   *   自分に関する変更の入口はアイコン1箇所に寄せて、ボタンは外した。
-   *   （名前・ユーザーID・自己紹介は settings/edit-profile が持つ）
+   * ★ 名前・自己紹介の編集はここに入れない。
+   *   アイコンの横に「プロフィールを編集」ボタンを置いたので、
+   *   同じ行き先を2箇所に置くと、どちらが何を変えるのか分からなくなる。
+   *   アイコン = 顔（写真・絵柄）、ボタン = 名前と自己紹介、と分ける。
    */
   const chooseAvatarAction = useCallback(() => {
     if (!user) return
@@ -349,18 +413,95 @@ export function ProfileView({ username, selfId }: Props) {
     if (profile?.photo_url) {
       options.push({ text: '写真を外す', style: 'destructive', onPress: () => void removePhoto() })
     }
-
-    // 名前と自己紹介。アイコンの変更とは別の画面へ行くので、
-    // 写真まわりの選択肢と混ざらないよう最後に置く。
-    options.push({
-      text: 'プロフィールを編集（名前・自己紹介）',
-      onPress: () => router.push('/settings/edit-profile'),
-    })
     options.push({ text: 'キャンセル', style: 'cancel' })
 
-    Alert.alert('プロフィール', undefined, options)
-  }, [user, profile?.photo_url, replacePhoto, removePhoto, router])
+    Alert.alert('アイコン', undefined, options)
+  }, [user, profile?.photo_url, replacePhoto, removePhoto])
 
+  /* ── ヘッダー写真の入れ替え ───────────────────────
+   * 流れはアイコンと同じ（保存が通ってから前の画像を消す・失敗したら上げた画像を片付ける）。
+   */
+  const replaceHeader = useCallback(async () => {
+    if (!user || savingHeader) return
+
+    let uri: string | null = null
+    try {
+      uri = await pickHeaderImage()
+    } catch (e) {
+      if (isPhotoPermissionError(e)) {
+        Alert.alert('写真へのアクセスが必要です', '設定アプリから写真の許可を有効にしてください。')
+        return
+      }
+      Alert.alert('写真を選べませんでした', (e as Error).message)
+      return
+    }
+    if (!uri) return
+
+    setSavingHeader(true)
+    const previous = profile?.header_url ?? null
+
+    let uploaded: string | null = null
+    try {
+      uploaded = await uploadHeader(user.id, uri)
+
+      const { error } = await supabase
+        .from('profiles').update({ header_url: uploaded }).eq('id', user.id)
+      if (error) throw error
+
+      setProfile((p) => (p ? { ...p, header_url: uploaded } : p))
+      if (previous && previous !== uploaded) await deleteAvatarByUrl(user.id, previous)
+      uploaded = null
+    } catch (e) {
+      if (uploaded) await deleteAvatarByUrl(user.id, uploaded)
+      const msg = (e as Error).message ?? ''
+      // ★ 移行 0020 を流す前のDBには列が無い。素のエラー文を出すと壊れて見える。
+      if (msg.includes('header_url')) {
+        Alert.alert(
+          'まだ使えません',
+          'アプリの更新に対してデータベース側の準備が終わっていません。しばらくしてからお試しください。'
+        )
+      } else {
+        Alert.alert('ヘッダー写真を変更できませんでした', msg)
+      }
+    } finally {
+      setSavingHeader(false)
+    }
+  }, [user, savingHeader, profile?.header_url])
+
+  const removeHeader = useCallback(async () => {
+    if (!user || savingHeader) return
+    const previous = profile?.header_url ?? null
+
+    setSavingHeader(true)
+    try {
+      const { error } = await supabase
+        .from('profiles').update({ header_url: null }).eq('id', user.id)
+      if (error) throw error
+
+      setProfile((p) => (p ? { ...p, header_url: null } : p))
+      if (previous) await deleteAvatarByUrl(user.id, previous)
+    } catch (e) {
+      Alert.alert('ヘッダー写真を外せませんでした', (e as Error).message)
+    } finally {
+      setSavingHeader(false)
+    }
+  }, [user, savingHeader, profile?.header_url])
+
+  const chooseHeaderAction = useCallback(() => {
+    const options: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
+      { text: '写真を選ぶ', onPress: () => void replaceHeader() },
+    ]
+    if (profile?.header_url) {
+      options.push({ text: '写真を外す', style: 'destructive', onPress: () => void removeHeader() })
+    }
+    options.push({ text: 'キャンセル', style: 'cancel' })
+    Alert.alert('ヘッダー写真', undefined, options)
+  }, [profile?.header_url, replaceHeader, removeHeader])
+
+  const areas = useMemo(() => visitedAreasOf(posts), [posts])
+  const genres = useMemo(() => topGenresOf(posts), [posts])
+  /** みんなの地図のカードに並べる人。自分は除く（自分の地図は地図タブそのもの） */
+  const mapPeople = useMemo(() => mapPins.filter((p) => !p.is_me), [mapPins])
 
   /* ─────────────────────────  描画  ───────────────────────── */
 
@@ -427,41 +568,76 @@ export function ProfileView({ username, selfId }: Props) {
     await refreshProfile()
   }
 
+  const shownAreas = showAllAreas ? areas : areas.slice(0, PREVIEW_COUNT)
+  const shownPosts = locked ? [] : showAllPosts ? posts : posts.slice(0, PREVIEW_COUNT)
+
   const header = (
     <View style={{ paddingBottom: space.md }}>
-      {/* ── 自分のページの右上 ─────────────────────
-        * このタブにはナビゲーションのヘッダーが無いので、
-        * 設定へ行く入口をここに置く。以前はプロフィールの下に
-        * 「設定」ボタンを並べていたが、写真より下にあるうえ
-        * 「プロフィールを編集」と役割が紛らわしかった。
-        */}
-      {isOwn && (
-        <View style={styles.ownerBar}>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            accessibilityRole="button"
-            accessibilityLabel="設定"
-            hitSlop={8}
-            style={({ pressed }) => [styles.menuBtn, { opacity: pressed ? 0.45 : 1 }]}
-          >
-            <Ionicons name="menu" size={26} color={colors.text} />
-          </Pressable>
-        </View>
-      )}
+      {/* ── ヘッダー写真 ─────────────────────────────
+        * 写真が無いときは面の色だけにする。
+        * 何か絵を置くと、写真を設定した人との差が「未設定」ではなく
+        * 「別のデザイン」に見えてしまう。 */}
+      <View style={[styles.cover, { backgroundColor: colors.surfaceAlt }]}>
+        {!!profile.header_url && (
+          <Image
+            source={{ uri: profile.header_url }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={150}
+          />
+        )}
 
-      <View style={styles.top}>
+        {/* ── 自分のページの右上 ─────────────────────
+          * このタブにはナビゲーションのヘッダーが無いので、
+          * 設定へ行く入口をここに置く。ヘッダー写真の変更も並べる。 */}
+        {isOwn && (
+          <View style={styles.ownerBar}>
+            <Pressable
+              onPress={chooseHeaderAction}
+              disabled={savingHeader}
+              accessibilityRole="button"
+              accessibilityLabel="ヘッダー写真を変える"
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.coverBtn,
+                { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              {savingHeader
+                ? <ActivityIndicator size="small" color={colors.textMuted} />
+                : <Ionicons name="image-outline" size={18} color={colors.text} />}
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/settings')}
+              accessibilityRole="button"
+              accessibilityLabel="設定"
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.coverBtn,
+                { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Ionicons name="settings-outline" size={18} color={colors.text} />
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {/* ── アイコンと、自分のページなら「プロフィールを編集」 ─────── */}
+      <View style={styles.avatarRow}>
         <Pressable
           onPress={isOwn ? chooseAvatarAction : undefined}
           disabled={!isOwn || savingPhoto}
           accessibilityRole={isOwn ? 'button' : undefined}
-          accessibilityLabel={isOwn ? 'プロフィールを変える' : undefined}
+          accessibilityLabel={isOwn ? 'アイコンを変える' : undefined}
+          style={[styles.avatarRing, { backgroundColor: colors.bg }]}
         >
           <RankAvatar
             uri={profile.photo_url}
             emoji={profile.avatar_emoji}
             name={profile.display_name}
             rank={rank}
-            size={80}
+            size={88}
           />
           {isOwn && (
             <View style={[styles.editIcon, { backgroundColor: colors.accent, borderColor: colors.bg }]}>
@@ -472,37 +648,32 @@ export function ProfileView({ username, selfId }: Props) {
           )}
         </Pressable>
 
-        <View style={styles.stats}>
-          <Stat value={profile.posts_count} label="投稿" />
-          <Stat value={profile.areas_count} label="エリア" />
-          {/* 数字から相手へ行けるようにする。
-              ★ 非公開アカウントで中を見られない相手（locked）のときは
-                押せなくすること。交友関係は投稿と同じ扱いで、
-                承認されたフォロワーにだけ見せる。 */}
-          <Stat
-            value={profile.followers_count}
-            label="フォロワー"
-            onPress={locked ? undefined : () => openFollows('followers')}
-          />
-          <Stat
-            value={profile.following_count}
-            label="フォロー中"
-            onPress={locked ? undefined : () => openFollows('following')}
-          />
-        </View>
+        {isOwn && (
+          <Pressable
+            onPress={() => router.push('/settings/edit-profile')}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.editBtn,
+              { borderColor: colors.borderStrong, backgroundColor: colors.surface, opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <Ionicons name="create-outline" size={15} color={colors.text} />
+            <Txt variant="smallMed" style={{ letterSpacing: 0.6 }}>プロフィールを編集</Txt>
+          </Pressable>
+        )}
       </View>
 
       {/* デモアカウントであることは、本文より先に出す。
           読んだ後で「実はデモでした」と分かるのでは意味がない。 */}
       {profile.is_demo && (
-        <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg }}>
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.md }}>
           <DemoNotice />
         </View>
       )}
 
       <View style={styles.identity}>
         <View style={styles.nameRow}>
-          <Txt variant="title">{profile.display_name}</Txt>
+          <Txt variant="title" style={{ flexShrink: 1 }} numberOfLines={1}>{profile.display_name}</Txt>
           <RankBadge rank={rank} compact />
           {!profile.is_public && (
             <View style={[styles.privateTag, { backgroundColor: colors.surfaceAlt }]}>
@@ -517,35 +688,35 @@ export function ProfileView({ username, selfId }: Props) {
         )}
       </View>
 
-      {/* ── ランク（自分のページだけ） ─────────────────
-        * 5段のうちのどこに居て、次の段に何が足りないかを
-        * この枠の中だけで分かるようにしてある（RankLadder）。
-        * 押すと投稿画面へ。進捗を見せても、そこから動けなければ意味がない。
-        */}
-      {isOwn && (
-        <Pressable
-          onPress={() => router.push('/post/new')}
-          style={({ pressed }) => [
-            styles.rankBox,
-            { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-          ]}
-        >
-          <RankLadder
-            rank={rank}
-            postsCount={profile.posts_count}
-            areasCount={profile.areas_count}
+      {/* ── 数字 ──────────────────────────────────
+        * 数字から相手へ行けるようにする。
+        * ★ 非公開アカウントで中を見られない相手（locked）のときは
+        *   押せなくすること。交友関係は投稿と同じ扱いで、
+        *   承認されたフォロワーにだけ見せる。
+        * エリアの数はここから外し、下の「行ったエリア」が受け持つ。 */}
+      <View style={[styles.stats, { borderColor: colors.border }]}>
+        <View style={styles.statCell}>
+          <Stat value={profile.posts_count} label="投稿" />
+        </View>
+        <View style={[styles.statRule, { backgroundColor: colors.border }]} />
+        <View style={styles.statCell}>
+          <Stat
+            value={profile.following_count}
+            label="フォロー"
+            onPress={locked ? undefined : () => openFollows('following')}
           />
-        </Pressable>
-      )}
+        </View>
+        <View style={[styles.statRule, { backgroundColor: colors.border }]} />
+        <View style={styles.statCell}>
+          <Stat
+            value={profile.followers_count}
+            label="フォロワー"
+            onPress={locked ? undefined : () => openFollows('followers')}
+          />
+        </View>
+      </View>
 
-      {/* ── 相手のプロフィールにだけ出す操作 ────────────────
-        * ★ 自分のページにはボタンを置かない。
-        *   設定は右上のメニュー、写真・絵柄・名前・自己紹介は
-        *   アイコンを押したときの選択肢に全て集めてある。
-        *   ここに「プロフィールを編集」を1つだけ残しておくと、
-        *   アイコンと役割が重なるうえ、自分のページだけ
-        *   意味の薄い横一列の余白ができる。
-        */}
+      {/* ── 相手のプロフィールにだけ出す操作 ──────────────── */}
       {!isOwn && (
         <View style={styles.actions}>
           <Button
@@ -574,25 +745,159 @@ export function ProfileView({ username, selfId }: Props) {
         </View>
       )}
 
-      {isOwn && posts.length > 0 && (
-        <View style={[styles.tip, { backgroundColor: colors.surfaceAlt }]}>
-          <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
-          <Txt variant="small" tone="muted" style={{ flex: 1 }}>
-            投稿は初期状態では非公開です。写真の鍵アイコンを押すと公開/非公開を切り替えられます。
-            写真を開くと、その投稿を削除できます。
-          </Txt>
+      {/* ── 好きなジャンル ───────────────────────────
+        * 本人に選ばせる欄ではなく、投稿の多いジャンルから出す。
+        * 設定させる項目を増やすより、投稿すれば勝手に育つほうが続く。 */}
+      {!locked && genres.length > 0 && (
+        <View style={styles.genres}>
+          {genres.map((g) => (
+            <Chip key={g} label={`${GENRE_EMOJI[g] ?? ''} ${g}`.trim()} />
+          ))}
+        </View>
+      )}
+
+      {/* ── 行ったエリア ─────────────────────────── */}
+      {!locked && areas.length > 0 && (
+        <View style={styles.section}>
+          <SectionHead
+            title="行ったエリア"
+            expandable={areas.length > PREVIEW_COUNT}
+            expanded={showAllAreas}
+            onToggle={() => setShowAllAreas((v) => !v)}
+          />
+          <View style={styles.grid}>
+            {shownAreas.map((a) => (
+              <View key={a.prefecture} style={{ width: cell }}>
+                {a.cover ? (
+                  <Image
+                    source={{ uri: a.cover }}
+                    style={[styles.areaPhoto, { height: cell * 0.8, backgroundColor: colors.surfaceAlt }]}
+                    contentFit="cover"
+                    transition={120}
+                  />
+                ) : (
+                  <View style={[styles.areaPhoto, styles.center, { height: cell * 0.8, backgroundColor: colors.surfaceAlt }]}>
+                    <Ionicons name="map-outline" size={18} color={colors.textFaint} />
+                  </View>
+                )}
+                <Txt variant="smallMed" numberOfLines={1} style={{ marginTop: space.xs }}>
+                  {a.prefecture.replace(/[都府県]$/, '')}
+                </Txt>
+                <Txt variant="caption" tone="faint">({a.count})</Txt>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* ── 最近の投稿（見出し。写真そのものは下の一覧） ─────── */}
+      {!locked && posts.length > 0 && (
+        <View style={[styles.section, { paddingBottom: space.sm }]}>
+          <SectionHead
+            title="最近の投稿"
+            expandable={posts.length > PREVIEW_COUNT}
+            expanded={showAllPosts}
+            onToggle={() => setShowAllPosts((v) => !v)}
+          />
+          {isOwn && (
+            <View style={[styles.tip, { backgroundColor: colors.surfaceAlt }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
+              <Txt variant="small" tone="muted" style={{ flex: 1 }}>
+                投稿は初期状態では非公開です。写真の鍵アイコンを押すと公開/非公開を切り替えられます。
+                写真を開くと、その投稿を削除できます。
+              </Txt>
+            </View>
+          )}
         </View>
       )}
     </View>
   )
 
+  /* ── みんなの地図（自分のページだけ） ───────────────────
+   * 地図に出している人の顔を並べ、押すとその人の地図だけを開く。
+   * 地図タブのストーリーの列と同じ行き先（index.tsx の focus 引数）。 */
+  const footer = isOwn ? (
+    <View style={{ paddingTop: space.lg }}>
+      <Pressable
+        onPress={() => router.navigate('/')}
+        accessibilityRole="button"
+        accessibilityLabel="みんなの地図を開く"
+        style={({ pressed }) => [
+          styles.mapCard,
+          { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.75 : 1 },
+        ]}
+      >
+        <View style={styles.mapCardHead}>
+          <View style={[styles.mapCardIcon, { backgroundColor: colors.accentSoft }]}>
+            <Ionicons name="people" size={18} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Txt variant="bodyMed">みんなの地図</Txt>
+            <Txt variant="small" tone="muted">
+              {mapPeople.length > 0
+                ? 'フォローしている人の投稿を見に行こう'
+                : '地図に出す人を選ぶと、ここに並びます'}
+            </Txt>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+        </View>
+
+        {mapPeople.length > 0 && (
+          <View style={[styles.faces, { borderTopColor: colors.border }]}>
+            {mapPeople.slice(0, MAP_FACES).map((pin, i) => (
+              <Pressable
+                key={pin.user_id}
+                onPress={() => router.navigate({ pathname: '/', params: { focus: pin.user_id } })}
+                accessibilityRole="button"
+                accessibilityLabel={`${pin.display_name}の地図を開く`}
+                style={[
+                  styles.face,
+                  { marginLeft: i === 0 ? 0 : -6, borderColor: colors.surface },
+                ]}
+              >
+                <Avatar uri={pin.photo_url} name={pin.display_name} size={34} />
+              </Pressable>
+            ))}
+            {mapPeople.length > MAP_FACES && (
+              <View style={[styles.face, styles.center, { marginLeft: -6, borderColor: colors.surface, backgroundColor: colors.accentSoft, width: 38, height: 38 }]}>
+                <Txt variant="caption" tone="accent">+{mapPeople.length - MAP_FACES}</Txt>
+              </View>
+            )}
+          </View>
+        )}
+      </Pressable>
+
+      {/* ── ランク ─────────────────────────────────
+        * 5段のうちのどこに居て、次の段に何が足りないかを
+        * この枠の中だけで分かるようにしてある（RankLadder）。
+        * 押すと投稿画面へ。進捗を見せても、そこから動けなければ意味がない。 */}
+      <Pressable
+        onPress={() => router.push('/post/new')}
+        style={({ pressed }) => [
+          styles.rankBox,
+          { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+        ]}
+      >
+        <RankLadder
+          rank={rank}
+          postsCount={profile.posts_count}
+          areasCount={profile.areas_count}
+        />
+      </Pressable>
+    </View>
+  ) : null
+
   return (
     <>
       <FlatList
-        data={locked ? [] : posts}
+        // ★ 列数を変えるときは key も変えること。FlatList は numColumns を
+        //   途中で変えられず、変えると赤画面になる。ここでは固定なので不要。
+        data={shownPosts}
         keyExtractor={(p) => p.id}
-        numColumns={3}
+        numColumns={COLUMNS}
+        columnWrapperStyle={styles.gridRow}
         ListHeaderComponent={header}
+        ListFooterComponent={footer}
         contentContainerStyle={{ paddingBottom: space.xxxl }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
@@ -619,7 +924,7 @@ export function ProfileView({ username, selfId }: Props) {
           <Pressable
             onPress={() => router.push({ pathname: '/post/[id]', params: { id: item.id } })}
             style={({ pressed }) => [
-              { width: cell, height: cell, margin: 1, opacity: pressed ? 0.75 : 1 },
+              { width: cell, height: cell, opacity: pressed ? 0.75 : 1 },
             ]}
           >
             {item.images[0] ? (
@@ -630,13 +935,8 @@ export function ProfileView({ username, selfId }: Props) {
                 transition={120}
               />
             ) : (
-              <View
-                style={[
-                  styles.cell,
-                  { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
-                ]}
-              >
-                <Txt style={{ fontSize: 24 }}>{GENRE_EMOJI[item.genre] ?? '🍴'}</Txt>
+              <View style={[styles.cell, styles.center, { backgroundColor: colors.surfaceAlt }]}>
+                <Txt style={{ fontSize: 22 }}>{GENRE_EMOJI[item.genre] ?? '🍴'}</Txt>
               </View>
             )}
 
@@ -655,7 +955,7 @@ export function ProfileView({ username, selfId }: Props) {
               >
                 <Ionicons
                   name={item.is_public ? 'earth' : 'lock-closed'}
-                  size={12}
+                  size={11}
                   color="#fff"
                 />
               </Pressable>
@@ -685,60 +985,117 @@ export function ProfileView({ username, selfId }: Props) {
   )
 }
 
+/** 「行ったエリア」「最近の投稿」の見出し。4件を超えるときだけ「もっと見る」を出す */
+function SectionHead({
+  title, expandable, expanded, onToggle,
+}: { title: string; expandable: boolean; expanded: boolean; onToggle: () => void }) {
+  const { colors } = useTheme()
+  return (
+    <View style={styles.sectionHead}>
+      <Txt variant="heading">{title}</Txt>
+      {expandable && (
+        <Pressable
+          onPress={onToggle}
+          hitSlop={10}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.more, { opacity: pressed ? 0.5 : 1 }]}
+        >
+          <Txt variant="small" tone="faint">{expanded ? '閉じる' : 'もっと見る'}</Txt>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-forward'} size={13} color={colors.textFaint} />
+        </Pressable>
+      )}
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
+  cover: { height: 150, overflow: 'hidden' },
   ownerBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: space.sm,
+    position: 'absolute', top: space.sm, right: space.md,
+    flexDirection: 'row', gap: space.sm,
   },
-  /** 44x44 は Apple のヒットターゲットの下限（HeaderBack と同じ） */
-  menuBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  top: {
+  /** 押せる大きさは hitSlop と合わせて 44pt を確保する */
+  coverBtn: {
+    width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xl,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
     paddingHorizontal: space.lg,
-    paddingTop: space.md,
+    marginTop: -46,
   },
-  stats: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
-  identity: { paddingHorizontal: space.lg, paddingTop: space.lg, gap: 1 },
+  /** ヘッダー写真に重ねるので、地の色で縁取って写真から切り離す */
+  avatarRing: { padding: 3, borderRadius: 999 },
+  editBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: space.xs,
+    height: 36, paddingHorizontal: space.md,
+    borderRadius: radius.sm, borderWidth: 1,
+  },
+  identity: { paddingHorizontal: space.lg, paddingTop: space.md, gap: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   privateTag: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.sm,
   },
+  stats: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: space.lg, marginTop: space.lg,
+    paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  statCell: { flex: 1, alignItems: 'center' },
+  statRule: { width: StyleSheet.hairlineWidth, height: 28 },
   actions: {
     flexDirection: 'row',
     gap: space.sm,
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
   },
+  genres: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: space.sm,
+    paddingHorizontal: space.lg, paddingTop: space.lg,
+  },
+  section: { paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.md },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  more: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
+  gridRow: { gap: GRID_GAP, paddingHorizontal: space.lg, marginBottom: GRID_GAP },
+  areaPhoto: { width: '100%', borderRadius: radius.sm },
+  center: { alignItems: 'center', justifyContent: 'center' },
   tip: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,
-    marginHorizontal: space.lg, marginTop: space.lg,
     padding: space.md, borderRadius: radius.md,
   },
   editIcon: {
-    position: 'absolute', right: -2, bottom: -2,
+    position: 'absolute', right: 2, bottom: 2,
     width: 24, height: 24, borderRadius: 12, borderWidth: 2,
     alignItems: 'center', justifyContent: 'center',
   },
+  mapCard: {
+    marginHorizontal: space.lg,
+    borderWidth: 1, borderRadius: radius.md,
+  },
+  mapCardHead: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md },
+  mapCardIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  faces: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: space.md, paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  face: { borderWidth: 2, borderRadius: 999 },
   rankBox: {
     marginHorizontal: space.lg, marginTop: space.lg,
     padding: space.md, borderRadius: radius.md, gap: space.sm,
   },
-  featured: {
-    position: 'absolute', left: 5, bottom: 5,
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    paddingHorizontal: 5, paddingVertical: 2,
-    borderRadius: radius.sm,
-    backgroundColor: 'rgba(20,17,15,0.72)',
-  },
-  featuredText: { color: '#fff', fontSize: 9, letterSpacing: 0.8 },
   cell: { width: '100%', height: '100%', borderRadius: radius.sm },
   lockBadge: {
-    position: 'absolute', top: 5, right: 5,
-    width: 24, height: 24, borderRadius: 12,
+    position: 'absolute', top: 4, right: 4,
+    width: 22, height: 22, borderRadius: 11,
     alignItems: 'center', justifyContent: 'center',
   },
 })

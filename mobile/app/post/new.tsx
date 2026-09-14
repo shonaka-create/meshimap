@@ -510,7 +510,36 @@ export default function NewPost() {
             <Txt variant="small" tone="faint">{images.length} / {MAX_IMAGES}（動画は不可）</Txt>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+          {/* ★ 「追加」の枠は横スクロールの外、左端に固定すること。
+                以前は写真の後ろ（右端）に置いていたので、写真を足すたびに枠が右へ逃げ、
+                3枚目あたりからはスクロールしないと次を足せなかった。
+                5枚そろっても枠は消さない。消すと写真の並びが左へずれるため。
+                押せば pickImages が「5枚までです」と案内する。
+                写真の順番は変えない（左から1枚目が地図のピンと代表写真に使われる）。 */}
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            <Pressable
+              onPress={pickImages}
+              accessibilityRole="button"
+              accessibilityLabel={images.length < MAX_IMAGES ? '写真を追加' : '写真は5枚までです'}
+              style={({ pressed }) => [
+                styles.addThumb,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  opacity: images.length >= MAX_IMAGES ? 0.4 : pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="images-outline" size={26} color={colors.textFaint} />
+              <Txt variant="caption" tone="faint">追加</Txt>
+            </Pressable>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ gap: space.sm }}
+          >
             {images.map((img) => (
               <View key={img.uri}>
                 <Image
@@ -528,17 +557,8 @@ export default function NewPost() {
                 </Pressable>
               </View>
             ))}
-
-            {images.length < MAX_IMAGES && (
-              <Pressable
-                onPress={pickImages}
-                style={[styles.addThumb, { borderColor: colors.border, backgroundColor: colors.surface }]}
-              >
-                <Ionicons name="images-outline" size={26} color={colors.textFaint} />
-                <Txt variant="caption" tone="faint">追加</Txt>
-              </Pressable>
-            )}
           </ScrollView>
+          </View>
         </View>
 
         {/* ── 店名 ─────────────────────────────── */}

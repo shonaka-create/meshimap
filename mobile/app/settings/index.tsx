@@ -2,11 +2,19 @@ import { useCallback, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import Constants from 'expo-constants'
 import { supabase } from '../../src/lib/supabase'
 import { PHOTO_CLEANUP_FAILED, useAuth } from '../../src/hooks/useAuth'
 import { useTheme, space, radius } from '../../src/theme'
 import { THEME_SETTINGS, useThemeSetting } from '../../src/hooks/useThemeSetting'
 import { Txt } from '../../src/components/ui'
+import { RankAvatar } from '../../src/components/RankAvatar'
+
+const THEME_LABELS = { light: 'ライト', dark: 'ダーク', system: 'システム' } as const
+const THEME_ICONS = {
+  light: 'sunny-outline', dark: 'moon-outline', system: 'phone-portrait-outline',
+} as const
+const THEME_ORDER = ['light', 'dark', 'system'] as const
 
 export default function Settings() {
   const { user, profile, signOut, deleteAccount, refreshProfile } = useAuth()
@@ -130,6 +138,40 @@ export default function Settings() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: space.lg, gap: space.xl }}>
 
+      {profile && (
+        <Pressable
+          onPress={() => router.push('/settings/edit-profile')}
+          accessibilityRole="button"
+          accessibilityLabel={`${profile.display_name}のプロフィールを編集`}
+          style={({ pressed }) => [
+            styles.row, styles.group,
+            { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <RankAvatar
+            uri={profile.photo_url}
+            emoji={profile.avatar_emoji}
+            name={profile.display_name}
+            postsCount={profile.posts_count}
+            areasCount={profile.areas_count}
+            size={56}
+          />
+          <View style={{ flex: 1 }}>
+            <Txt variant="heading">{profile.display_name}</Txt>
+            <Txt variant="small" tone="faint">@{profile.username}</Txt>
+            <Pressable
+              onPress={() => router.push('/settings/edit-profile')}
+              accessibilityRole="button"
+              accessibilityLabel="プロフィールを編集"
+              style={({ pressed }) => [styles.editButton, { borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="create-outline" size={16} color={colors.textMuted} />
+              <Txt variant="small" tone="muted">編集</Txt>
+            </Pressable>
+          </View>
+        </Pressable>
+      )}
+
       {/* ── 画面の見た目 ─────────────────────────
         * 端末の設定に従うのが既定。ただし「アプリ全体は明るいままで、
         * このアプリだけ暗くしたい」（逆も）という要望は普通にあるので、
@@ -137,22 +179,27 @@ export default function Settings() {
         * 設定はこの端末にだけ保存され、アカウントには紐づかない。
         */}
       <Section title="画面の見た目">
-        <View style={{ gap: space.sm }}>
-          {THEME_SETTINGS.map((t) => (
+        <Group horizontal>
+          {THEME_ORDER.map((value, index) => (
             <ThemeChoice
-              key={t.value}
-              label={t.label}
-              note={t.note}
-              selected={themeSetting === t.value}
-              onPress={() => setThemeSetting(t.value)}
+              key={value}
+              label={THEME_LABELS[value]}
+              accessibilityLabel={THEME_SETTINGS.find((t) => t.value === value)!.label}
+              icon={THEME_ICONS[value]}
+              divider={index > 0}
+              selected={themeSetting === value}
+              onPress={() => setThemeSetting(value)}
             />
           ))}
-        </View>
+        </Group>
+        <Txt variant="small" tone="faint" numberOfLines={1}>
+          {THEME_SETTINGS.find((t) => t.value === themeSetting)?.note}
+        </Txt>
       </Section>
 
       {/* ── プライバシー ─────────────────────────── */}
-      <Section title="プライバシー">
-        <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Section title="">
+        <View style={[styles.row, styles.group, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons
             name={profile?.is_public ? 'earth' : 'lock-closed'}
             size={20}
@@ -182,41 +229,48 @@ export default function Settings() {
 
       {/* ── アカウント ───────────────────────────── */}
       <Section title="アカウント">
-        <Item
-          icon="person-outline"
-          label="プロフィールを編集"
-          sub={profile ? `${profile.display_name} · @${profile.username}` : undefined}
-          onPress={() => router.push('/settings/edit-profile')}
-        />
-        <Item
-          icon="person-add-outline"
-          label="フォローリクエスト"
-          // 件数はここにしか出ない。旧「フォロー」タブの上部に出していた
-          // 案内を、タブを畳んだときにこちらへ寄せた。
-          sub={pendingCount > 0 ? `${pendingCount}件の承認待ち` : undefined}
-          onPress={() => router.push('/settings/requests')}
-        />
-        <Item
-          icon="ban-outline"
-          label="ブロックしたアカウント"
-          onPress={() => router.push('/settings/blocked')}
-        />
+        <Group>
+          <Item
+            icon="person-outline"
+            label="プロフィールを編集"
+            sub={profile ? `${profile.display_name} · @${profile.username}` : undefined}
+            onPress={() => router.push('/settings/edit-profile')}
+          />
+          <Item
+            divider
+            notification={pendingCount > 0}
+            icon="person-add-outline"
+            label="フォローリクエスト"
+            // 件数はここにしか出ない。旧「フォロー」タブの上部に出していた
+            // 案内を、タブを畳んだときにこちらへ寄せた。
+            sub={pendingCount > 0 ? `${pendingCount}件の承認待ち` : undefined}
+            onPress={() => router.push('/settings/requests')}
+          />
+          <Item
+            divider
+            icon="ban-outline"
+            label="ブロックしたアカウント"
+            onPress={() => router.push('/settings/blocked')}
+          />
+        </Group>
       </Section>
 
       {/* ── 規約 ─────────────────────────────── */}
       <Section title="このアプリについて">
-        <Item icon="document-text-outline" label="利用規約" onPress={() => router.push('/legal/terms')} />
-        <Item icon="shield-checkmark-outline" label="プライバシーポリシー" onPress={() => router.push('/legal/privacy')} />
+        <Group>
+          <Item icon="document-text-outline" label="利用規約" onPress={() => router.push('/legal/terms')} />
+          <Item divider icon="shield-checkmark-outline" label="プライバシーポリシー" onPress={() => router.push('/legal/privacy')} />
+        </Group>
       </Section>
 
       {/* ── 危険な操作 ───────────────────────────── */}
-      <Section title="">
+      <Group>
         <Item icon="log-out-outline" label="ログアウト" onPress={signOut} />
-        <Item icon="trash-outline" label="アカウントを削除" danger onPress={confirmDelete} />
-      </Section>
+        <Item divider icon="trash-outline" label="アカウントを削除" danger onPress={confirmDelete} />
+      </Group>
 
       <Txt variant="small" tone="faint" style={{ textAlign: 'center' }}>
-        MeshiMap v1.0.0
+        MeshiMap{Constants.expoConfig?.version ? ` v${Constants.expoConfig.version}` : ''}
       </Txt>
     </ScrollView>
   )
@@ -229,8 +283,15 @@ export default function Settings() {
  * 控えめでよい（色が変われば選べたことは分かる）。
  */
 function ThemeChoice({
-  label, note, selected, onPress,
-}: { label: string; note: string; selected: boolean; onPress: () => void }) {
+  label, accessibilityLabel, icon, divider, selected, onPress,
+}: {
+  label: string
+  accessibilityLabel: string
+  icon: keyof typeof Ionicons.glyphMap
+  divider: boolean
+  selected: boolean
+  onPress: () => void
+}) {
   const { colors } = useTheme()
 
   return (
@@ -238,25 +299,23 @@ function ThemeChoice({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
-        styles.row,
+        styles.themeChoice,
         {
           backgroundColor: selected ? colors.accentSoft : colors.surface,
-          borderColor: selected ? colors.accent : colors.border,
+          borderColor: colors.border,
+          borderLeftWidth: divider ? StyleSheet.hairlineWidth : 0,
           opacity: pressed ? 0.7 : 1,
         },
       ]}
     >
       <Ionicons
-        name={selected ? 'radio-button-on' : 'radio-button-off'}
+        name={icon}
         size={20}
-        color={selected ? colors.accent : colors.textFaint}
+        color={selected ? colors.accent : colors.textMuted}
       />
-      <View style={{ flex: 1 }}>
-        <Txt variant="body">{label}</Txt>
-        <Txt variant="small" tone="faint">{note}</Txt>
-      </View>
+      <Txt variant="small" tone={selected ? 'accent' : 'muted'}>{label}</Txt>
     </Pressable>
   )
 }
@@ -270,14 +329,28 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+function Group({ children, horizontal = false }: { children: React.ReactNode; horizontal?: boolean }) {
+  const { colors } = useTheme()
+  return (
+    <View style={[
+      styles.group,
+      { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: horizontal ? 'row' : 'column' },
+    ]}>
+      {children}
+    </View>
+  )
+}
+
 function Item({
-  icon, label, sub, onPress, danger,
+  icon, label, sub, onPress, danger, divider = false, notification = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap
   label: string
   sub?: string
   onPress: () => void
   danger?: boolean
+  divider?: boolean
+  notification?: boolean
 }) {
   const { colors } = useTheme()
   const tint = danger ? colors.danger : colors.text
@@ -285,11 +358,13 @@ function Item({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => [
         styles.row,
         {
           backgroundColor: colors.surface,
           borderColor: colors.border,
+          borderTopWidth: divider ? StyleSheet.hairlineWidth : 0,
           opacity: pressed ? 0.7 : 1,
         },
       ]}
@@ -299,6 +374,7 @@ function Item({
         <Txt variant="body" style={{ color: tint }}>{label}</Txt>
         {!!sub && <Txt variant="small" tone="faint">{sub}</Txt>}
       </View>
+      {notification && <View style={[styles.notification, { backgroundColor: colors.danger }]} />}
       <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
     </Pressable>
   )
@@ -306,11 +382,39 @@ function Item({
 
 const styles = StyleSheet.create({
   row: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
     padding: space.md,
+  },
+  group: {
     borderRadius: radius.md,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  themeChoice: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.xs,
+    padding: space.md,
+  },
+  editButton: {
+    minHeight: 44,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    marginTop: space.sm,
+    paddingHorizontal: space.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  notification: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 })
