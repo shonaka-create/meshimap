@@ -147,6 +147,8 @@ export default function HomeMap() {
    */
   const { user } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** 地図に出す人が変わった回数。変わったらバブルの集計を取り直すための合図 */
+  const [audienceVersion, setAudienceVersion] = useState(0)
 
   /**
    * 「この人の地図だけを見る」の相手。null なら地図に出ている全員。
@@ -360,7 +362,8 @@ export default function HomeMap() {
 
     load()
     return () => { cancelled = true }
-  }, [drill, genre, focusUser])
+    // audienceVersion は中で読まないが、地図に出す人が変わったら取り直すために入れてある
+  }, [drill, genre, focusUser, audienceVersion])
 
   /* ── 自分とフォロー中の人のアイコンを取得 ─────────────
    * 現在地ではなく「最後に投稿したお店」の座標。
@@ -390,7 +393,22 @@ export default function HomeMap() {
 
   /* ── エリアを選んだら、その中の投稿を取得 ───────────── */
   const loadPostsForArea = useCallback(
-    async (prefecture: string, area: string, focus: string | null) => {
+    async (
+      prefecture: string,
+      area: string,
+      focus: string | null,
+      /**
+       * 同じエリアを条件だけ変えて取り直すとき（人の切り替え・地図に出す人の変更）は立てる。
+       *
+       * ★ そのときは、先にピンを空にしないこと。
+       *   空にすると、表示中の投稿ピン（Marker）を全部外して、
+       *   結果が返ってからまた全部付け直すことになる。
+       *   Marker を外すのは react-native-maps がいちばん落ちやすい操作で、
+       *   人の切り替えは地図を動かしながら何度でも押せる。
+       *   残したまま結果で差し替えれば、同じ投稿の Marker は key が同じなので外れない。
+       */
+      opts?: { keepPins?: boolean }
+    ) => {
       const seq = ++postsSeq.current
 
       // ★ 先に階層を切り替えること。
@@ -398,7 +416,7 @@ export default function HomeMap() {
       //   あいだ地域バブル（数字）が最下層に残り続けていた。
       //   「いちばん下まで降りたのに番号のバブルが出る」の原因はこれ。
       setOpenArea(area)
-      setPosts([])
+      if (!opts?.keepPins) setPosts([])
 
       // ★ posts を直接引かないこと。posts_in_area（移行0019）を通すこと。
       //
@@ -441,6 +459,12 @@ export default function HomeMap() {
    */
   const onRegionPress = useCallback(
     (r: RegionCount) => {
+      // ★ いま出ているバブルが、いまの条件（階層・ジャンル・人）の集計でなければ降りないこと。
+      //   人やジャンルを切り替えた直後は、取得が終わるまで前の条件のバブルが残っている。
+      //   それを押して降りると、選んだ人の投稿が無いエリアへ行き、0件の行き止まりになる。
+      //   ピンチで降りる側（onRegionChangeComplete）と同じ見張り。
+      if (regionsRef.current.key !== regionKeyOf(drill, genre, focusUser)) return
+
       const finalDelta = drill.level === 'prefecture' ? 0.45 : 0.06
       const at = (d: number, ms: number) =>
         flyTo(
@@ -495,7 +519,7 @@ export default function HomeMap() {
         },
       })
     },
-    [drill, loadPostsForArea, flyTo]
+    [drill, genre, focusUser, loadPostsForArea, flyTo]
   )
 
   /**
@@ -584,11 +608,27 @@ export default function HomeMap() {
       setFocusUser(id)
       setSelectedPost(null)
       if (openArea !== null && drill.level === 'area') {
-        loadPostsForArea(drill.prefecture, openArea, id)
+        loadPostsForArea(drill.prefecture, openArea, id, { keepPins: true })
       }
     },
     [openArea, drill, loadPostsForArea]
   )
+
+  /**
+   * 「誰の地図を出す」の引き出しで、地図に出す人が変わった。
+   *
+   * ★ アイコンだけでなく、バブルと開いているエリアの投稿も取り直すこと。
+   *   以前はアイコン（map_pins）だけを取り直していたので、
+   *   外した人のアイコンは消えるのに、その人の件数・代表写真・投稿ピンは残っていた。
+   *   バブルが写真になって、この食い違いが目に見えるようになった。
+   */
+  const onAudienceChanged = useCallback(() => {
+    loadPins()
+    setAudienceVersion((v) => v + 1)
+    if (openArea !== null && drill.level === 'area') {
+      loadPostsForArea(drill.prefecture, openArea, focusRef.current, { keepPins: true })
+    }
+  }, [loadPins, openArea, drill, loadPostsForArea])
 
   /**
    * マイページの「みんなの地図」から、人を指定して開かれたとき。
@@ -951,7 +991,7 @@ export default function HomeMap() {
         visible={drawerOpen}
         myId={user?.id ?? null}
         onClose={() => setDrawerOpen(false)}
-        onChanged={loadPins}
+        onChanged={onAudienceChanged}
       />
 
       {/* ── 投稿プレビュー ─────────────────────────── */}

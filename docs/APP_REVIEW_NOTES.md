@@ -109,11 +109,15 @@ iOS 15.1. iPad is not supported (iPhone only).
  1. Launch the app and tap "ログイン" (Log in). Sign in with the demo account above.
     New registration is on the same screen ("新規登録"): it asks for a display name, a
     user ID, an e-mail address, a password, and agreement to the Terms of Use.
- 2. MAP (first tab). Each bubble shows the number of posts in that region. Tap a bubble
-    to go one level down (prefecture -> area). At the area level, individual restaurant
-    pins appear; tap a pin for a preview, then tap the preview to open the full post.
- 3. WHOSE MAP TO SHOW. The button at the bottom left ("他の人の地図") opens a drawer that
-    selects whose posts appear as icons on the map.
+ 2. MAP (first tab). Each bubble shows the most-viewed photo in that region, with the
+    number of posts in the top-right corner (regions without photos show the number only).
+    Tap a bubble to go one level down (prefecture -> area). At the area level, each
+    restaurant appears as a pin with the post's photo; tap a pin for a preview, then tap
+    the preview to open the full post.
+ 3. WHOSE MAP TO SHOW. The bar at the bottom left ("みんなの地図") has two parts:
+    - the dark label on the left opens a drawer that selects whose posts appear on the map;
+    - the round profile icons to its right (scroll sideways) narrow the map to that one
+      person. Tap the same icon again, or "みんなに戻す" at the top, to show everyone again.
  4. CREATE A POST ("+" tab). Choose up to 5 photos from the photo library, give a rating,
     a genre, a budget, an occasion, a caption, and the location.
     NEW POSTS ARE PRIVATE BY DEFAULT. To publish one, open your profile and tap the lock
@@ -121,7 +125,8 @@ iOS 15.1. iPad is not supported (iPhone only).
  5. RECOMMENDATIONS ("今日どこ行く？" tab). Choose conditions, then tap the button at the
     bottom.
  6. SEARCH tab. Searches both restaurants and accounts.
- 7. PROFILE tab. Your posts, your rank, and Settings.
+ 7. PROFILE tab. Your posts, the areas you have visited, your rank, and a shortcut to the
+    map of the people you follow. Settings is the gear icon at the top right.
  8. REPORTING AND BLOCKING (user-generated content). Open any post by another user and
     tap the flag icon at the top right, or open another user's profile and use
     "通報" (report) or "ブロック" (block). Blocking hides both users from each other.
