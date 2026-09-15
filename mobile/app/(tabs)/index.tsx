@@ -16,14 +16,12 @@ import type { MapPin, Post, RegionCount, RegionLevel } from '../../src/lib/types
 import { toPost } from '../../src/lib/posts'
 import { PREFECTURE_BY_NAME } from '../../src/lib/regions'
 import { PostPreviewSheet } from '../../src/components/PostPreviewSheet'
-import { RankAvatar } from '../../src/components/RankAvatar'
 import {
   CloudTransition, CLEAR_MS, COVER_MS, type CloudTransitionHandle,
 } from '../../src/components/CloudTransition'
 import { MapAudienceDrawer } from '../../src/components/MapAudienceDrawer'
 import { MapStoryRow } from '../../src/components/MapStoryRow'
 import { useAuth } from '../../src/hooks/useAuth'
-import { RANKS } from '../../src/lib/rank'
 
 /** 日本全体が収まる初期表示 */
 const JAPAN: Region = {
@@ -133,9 +131,8 @@ export default function HomeMap() {
   const [loadingRegions, setLoadingRegions] = useState(true)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
 
-  /** 自分とフォロー中の人のアイコン。「最後に投稿したお店」の位置に出る */
+  /** 自分とフォロー中の人。地図には立てず、下のストーリーの列に並べる */
   const [pins, setPins] = useState<MapPin[]>([])
-  const [showPins, setShowPins] = useState(true)
 
   /**
    * 「誰の地図を出すか」の引き出し。
@@ -746,11 +743,6 @@ export default function HomeMap() {
    */
   const regionsRef = useRef<{ key: string; list: RegionCount[] }>({ key: '', list: [] })
 
-  /** 人を選んでいる間は、その人のアイコンだけを出す */
-  const visiblePins = useMemo(
-    () => (focusUser ? pins.filter((p) => p.user_id === focusUser) : pins),
-    [pins, focusUser]
-  )
 
   /**
    * 選んでいる人の呼び名。上の見出しに出す。
@@ -813,25 +805,11 @@ export default function HomeMap() {
             />
           ))}
 
-        {/* 自分とフォロー中の人。地域バブルより手前に出したいので最後に置く */}
-        {showPins &&
-          visiblePins.map((pin) => (
-            <TrackedMarker
-              // 写真が入れ替わったら絵を取り直させる（key ではなく redraw で）
-              key={`pin-${pin.user_id}`}
-              redraw={`${pin.photo_url ?? ''}-${pin.avatar_emoji ?? ''}-${pin.rank}`}
-              coordinate={{ latitude: pin.location_lat, longitude: pin.location_lng }}
-              onPress={() => {
-                markMarkerPress()
-                if (pin.is_me) router.push('/(tabs)/profile')
-                else router.push(`/user/${pin.username}`)
-              }}
-              anchor={{ x: 0.5, y: 1 }}
-              zIndex={10}
-            >
-              <FriendPin pin={pin} />
-            </TrackedMarker>
-          ))}
+        {/* ★ 自分・フォロー中の人のアイコンは地図に立てないこと。
+          *   以前は「最後に投稿したお店」にアイコンのピンを立てていたが、
+          *   頭文字の丸が写真のピンと並ぶと、どの投稿と繋がっているのか分からず、
+          *   地図を読む邪魔にしかならなかった。
+          *   誰の投稿を見るかは、下のストーリーの列（MapStoryRow）で絞る。 */}
       </MapView>
 
       {/* 雲は地図の上・操作UIの下。pointerEvents は none なので操作は妨げない */}
@@ -919,32 +897,6 @@ export default function HomeMap() {
           ))}
         </ScrollView>
       </View>
-
-      {/* ── 右下: アイコンの表示切り替え ─────────────────
-        * 人が増えると地域バブルが読めなくなるので、隠せるようにする。
-        */}
-      {pins.length > 0 && (
-        <Pressable
-          onPress={() => setShowPins((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={showPins ? 'みんなのアイコンを隠す' : 'みんなのアイコンを表示'}
-          style={({ pressed }) => [
-            styles.fab,
-            shadow.float,
-            {
-              backgroundColor: showPins ? colors.accent : colors.surface,
-              bottom: insets.bottom + space.xl + 56 + space.md,
-              opacity: pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="people"
-            size={20}
-            color={showPins ? colors.accentText : colors.textMuted}
-          />
-        </Pressable>
-      )}
 
       {/* ── 右下: 現在地に戻るボタン ───────────────────── */}
       <Pressable
@@ -1085,48 +1037,6 @@ function Crumb({
         {label}
       </Txt>
     </Pressable>
-  )
-}
-
-/**
- * 自分・フォロー中の人のアイコン。
- *
- * Snap Map と違って現在地ではなく「最後に投稿したお店」に立つ。
- *
- * ★ 名前や店名を並べないこと。
- *   以前はアイコンの横に「アカウント名／◯日前 · 店名」を出していた。
- *   地図の上に人の名前の札が立つと、地図ではなく名簿に見えるうえ、
- *   ピンが2つ3つ近くにあるだけで札同士が重なり、
- *   下の地形も他のピンも読めなくなる。
- *   誰なのかは押せば分かる（プロフィールへ飛ぶ）。
- *
- *   「いつの位置か」の説明は、この札ではなく
- *   プライバシーポリシー（legal/content.ts）と
- *   「誰の地図を出す」の引き出しが受け持つ。
- */
-function FriendPin({ pin }: { pin: MapPin }) {
-  const { colors } = useTheme()
-  const rank = RANKS.find((r) => r.level === pin.rank) ?? RANKS[0]
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <View
-        style={[
-          styles.friendCard,
-          shadow.float,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <RankAvatar
-          uri={pin.photo_url}
-          emoji={pin.avatar_emoji}
-          name={pin.display_name}
-          rank={rank}
-          size={40}
-        />
-      </View>
-      <View style={[styles.friendTail, { borderTopColor: colors.surface }]} />
-    </View>
   )
 }
 
@@ -1442,22 +1352,6 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     borderRightWidth: 5,
     borderTopWidth: 7,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-  },
-  /** アイコンを白い縁で囲むだけ。文字は入れない（FriendPin のコメント参照） */
-  friendCard: {
-    padding: 3,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-  },
-  friendTail: {
-    width: 0,
-    height: 0,
-    marginTop: -1,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 8,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },

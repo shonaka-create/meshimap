@@ -346,7 +346,8 @@ export function Stat({
       <Text style={[type.title as TextStyle, { color: colors.text, fontSize: 20, lineHeight: 28 }]}>
         {(value ?? 0).toLocaleString('ja-JP')}
       </Text>
-      <Txt variant="caption" tone="faint">{label}</Txt>
+      {/* 4つ並べると幅が狭い画面では「フォロワー」が折り返すので、1行に縮めて収める */}
+      <Txt variant="caption" tone="faint" numberOfLines={1} adjustsFontSizeToFit>{label}</Txt>
     </Pressable>
   )
 }
