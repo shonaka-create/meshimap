@@ -30,8 +30,6 @@ interface Props {
   selfId?: string
 }
 
-/** 「最近の投稿」を畳んでいるときに出す数（1列ぶん） */
-const PREVIEW_COUNT = 4
 /** 投稿の写真を1列に並べる数 */
 const COLUMNS = 4
 const GRID_GAP = 6
@@ -72,7 +70,13 @@ export function ProfileView({ username, selfId }: Props) {
   const [savingPhoto, setSavingPhoto] = useState(false)
   /** ヘッダー写真の入れ替え中 */
   const [savingHeader, setSavingHeader] = useState(false)
-  const [showAllPosts, setShowAllPosts] = useState(false)
+  /**
+   * ジャンルの絞り込み。プロフィールのチップを押すと、その種類だけを出す。
+   *
+   * ★ 飾りにしないこと。以前は押せないチップが並んでいるだけで、
+   *   「押せそうなのに何も起きない」といちばん惜しい形だった。
+   */
+  const [genreFilter, setGenreFilter] = useState<string | null>(null)
 
   const isOwn = !!selfId || (!!profile && profile.id === user?.id)
   const cell = (width - space.lg * 2 - GRID_GAP * (COLUMNS - 1)) / COLUMNS
@@ -524,7 +528,12 @@ export function ProfileView({ username, selfId }: Props) {
     await refreshProfile()
   }
 
-  const shownPosts = locked ? [] : showAllPosts ? posts : posts.slice(0, PREVIEW_COUNT)
+  // 投稿は畳まない。Instagram と同じく、そのままスクロールで全部見られる。
+  const shownPosts = locked
+    ? []
+    : genreFilter
+      ? posts.filter((p) => p.genre === genreFilter)
+      : posts
 
   const header = (
     <View style={{ paddingBottom: space.md }}>
@@ -704,26 +713,42 @@ export function ProfileView({ username, selfId }: Props) {
         </View>
       )}
 
-      {/* ── 好きなジャンル ───────────────────────────
+      {/* ── 好きなジャンル（押すと絞り込み） ─────────────────
         * 本人に選ばせる欄ではなく、投稿の多いジャンルから出す。
-        * 設定させる項目を増やすより、投稿すれば勝手に育つほうが続く。 */}
+        * 設定させる項目を増やすより、投稿すれば勝手に育つほうが続く。
+        * 押すとその種類だけに絞り、もう一度押すと戻る。 */}
       {!locked && genres.length > 0 && (
         <View style={styles.genres}>
           {genres.map((g) => (
-            <Chip key={g} label={`${GENRE_EMOJI[g] ?? ''} ${g}`.trim()} />
+            <Chip
+              key={g}
+              label={`${GENRE_EMOJI[g] ?? ''} ${g}`.trim()}
+              selected={genreFilter === g}
+              onPress={() => setGenreFilter((cur) => (cur === g ? null : g))}
+            />
           ))}
         </View>
       )}
 
-      {/* ── 最近の投稿（見出し。写真そのものは下の一覧） ─────── */}
+      {/* ── 投稿（見出し。写真そのものは下の一覧） ───────────
+        * ★ 「もっと見る / 閉じる」を戻さないこと。
+        *   写真の一覧は畳まず全部出して、スクロールで見てもらう。 */}
       {!locked && posts.length > 0 && (
         <View style={[styles.section, { paddingBottom: space.sm }]}>
-          <SectionHead
-            title="最近の投稿"
-            expandable={posts.length > PREVIEW_COUNT}
-            expanded={showAllPosts}
-            onToggle={() => setShowAllPosts((v) => !v)}
-          />
+          <View style={styles.sectionHead}>
+            <Txt variant="heading">投稿</Txt>
+            {!!genreFilter && (
+              <Pressable
+                onPress={() => setGenreFilter(null)}
+                hitSlop={10}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.more, { opacity: pressed ? 0.5 : 1 }]}
+              >
+                <Txt variant="small" tone="faint">{genreFilter} だけ表示中 · 解除</Txt>
+                <Ionicons name="close-circle" size={13} color={colors.textFaint} />
+              </Pressable>
+            )}
+          </View>
           {isOwn && (
             <View style={[styles.tip, { backgroundColor: colors.surfaceAlt }]}>
               <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
@@ -762,6 +787,14 @@ export function ProfileView({ username, selfId }: Props) {
               emoji="🔒"
               title="非公開アカウントです"
               body="フォローが承認されると投稿を見られるようになります。"
+            />
+          ) : genreFilter ? (
+            // 絞り込みで0件。「まだ投稿がありません」と出すと、
+            // 投稿そのものが無いのだと誤解する。
+            <EmptyState
+              emoji="🍽️"
+              title={`${genreFilter} の投稿はありません`}
+              body="ジャンルをもう一度押すと、すべての投稿に戻ります。"
             />
           ) : (
             <EmptyState
@@ -836,29 +869,6 @@ export function ProfileView({ username, selfId }: Props) {
         />
       )}
     </>
-  )
-}
-
-/** 「最近の投稿」の見出し。4件を超えるときだけ「もっと見る」を出す */
-function SectionHead({
-  title, expandable, expanded, onToggle,
-}: { title: string; expandable: boolean; expanded: boolean; onToggle: () => void }) {
-  const { colors } = useTheme()
-  return (
-    <View style={styles.sectionHead}>
-      <Txt variant="heading">{title}</Txt>
-      {expandable && (
-        <Pressable
-          onPress={onToggle}
-          hitSlop={10}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.more, { opacity: pressed ? 0.5 : 1 }]}
-        >
-          <Txt variant="small" tone="faint">{expanded ? '閉じる' : 'もっと見る'}</Txt>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-forward'} size={13} color={colors.textFaint} />
-        </Pressable>
-      )}
-    </View>
   )
 }
 

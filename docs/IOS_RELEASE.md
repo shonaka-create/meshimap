@@ -40,12 +40,24 @@ App Store には出せないため、iOS 版はこの `mobile/` を使います�
 
 ### 2-1. API の有効化 — ✅ 完了
 
-`Maps SDK for iOS` と `Geocoding API` を使用します。動作確認済みです。
+`Maps SDK for iOS` と `Geocoding API`、`Places API (New)` を使用します。
 
-> **Places API は使いません。** 最寄り駅の判定にのみ必要でしたが、
-> 単価が Geocoding の6倍以上（約 $32/1,000）で無料枠も半分しかないため、
-> アプリ内蔵の主要エリアデータ（144件・うち25件が駅名）で代替しました。
+> **最寄り駅の判定には Places を使いません。** 単価が高い（Nearby Search Pro は
+> 約 $32/1,000）ため、アプリ内蔵の主要エリアデータ（うち25件が駅名）で代替しています。
 > 地図の階層は **県 → エリア** の2段です。
+>
+> **投稿時の店名検索にだけ Places を使います**（2026-09-16 追加）。
+> 店名で場所を引けないと、登録したい店をそのまま打っても何も出ませんでした。
+> 使うのは無料枠の大きい2つだけです。
+>
+> | 用途 | SKU | 無料枠/月 | 超過後 |
+> |---|---|---|---|
+> | 候補を出す | Autocomplete Requests | 10,000 | 約 $2.27/1,000 |
+> | 選ばれた店の座標 | Place Details Essentials | 10,000 | 約 $5/1,000 |
+>
+> ★ `displayName` を取ってはいけません。Place Details が Pro
+> （無料枠 5,000・約 $17/1,000）に跳ね上がります。店名は Autocomplete が
+> 返す文字列を使ってください（`app/api/places/detail/route.ts` のコメント参照）。
 
 ### 2-2. 鍵 — ✅ MeshiMap 専用に2本作成済み
 
@@ -53,6 +65,13 @@ App Store には出せないため、iOS 版はこの `mobile/` を使います�
 |---|---|---|---|
 | `meshimap-ios` | **アプリの中**（これは正しい） | アプリ制限: **iOS バンドルID `jp.yournist.meshimap`**<br>API制限: `maps-ios-backend` のみ | `mobile/.env` の `GOOGLE_MAPS_IOS_KEY` |
 | `meshimap-geocoding` | **サーバーだけ**（アプリに入れない） | アプリ制限: **かけられない**<br>API制限: `geocoding-backend` のみ | Vercel の `GOOGLE_GEOCODING_KEY` |
+| `meshimap-places` | **サーバーだけ**（アプリに入れない） | アプリ制限: **かけられない**<br>API制限: `places-backend`（Places API (New)）のみ | Vercel の `GOOGLE_PLACES_KEY` |
+
+> `meshimap-places` は**新しく作る鍵です**（未作成）。既存の `meshimap-geocoding` に
+> Places を足して兼用しないこと。片方が漏れたときに両方を止める羽目になります。
+> 作成後、Vercel の環境変数に `GOOGLE_PLACES_KEY` を追加してください。
+> 未設定のままでも投稿は止まりません（店名の候補が出ないだけで、
+> 過去に登録された店と駅名・地名では探せます）。
 
 **Geocoding の鍵をアプリに入れてはいけません。** 2本の扱いが違うのはこのためです。
 
@@ -98,7 +117,29 @@ Maps 系の割り当ては API 経由で変更できない仕様のため、ブ�
 | API | 推奨 日次上限 | 月換算 | 根拠 |
 |---|---|---|---|
 | Geocoding API | **300** | 9,000 | 無料枠 10,000/月 に収まる。実際の消費はこれよりずっと少ない |
+| Places API (New) | **300** | 9,000 | 無料枠 10,000/月 に収まる。候補1回＋座標1回で2消費する前提 |
 | Maps SDK for iOS | **設定しない** | — | 上限に達すると地図が出なくなり、通常利用者の体験を壊すため |
+
+**Places はサーバー側にも上限があります（二重の柵）。**
+移行 0021 の `place_search_caps()` が「1人 40回/日・全体 250回/日」を持っていて、
+`consume_place_search()` が呼び出しのたびに数えます。上限に達した日は
+Google を呼ばずに `capped` を返し、アプリは**過去に登録された店（`known_places`）と
+駅名・地名**だけで候補を出します（投稿は止まりません）。
+
+上限を変えるときは `place_search_caps()` の数字だけを直してください。
+アプリにもサーバーのコードにも、同じ数字を書かないでください。
+
+今日の消費量は SQL Editor で確認できます。
+
+```sql
+SELECT t.day, t.calls AS 全体,
+       (SELECT COUNT(*) FROM public.place_search_usage u WHERE u.day = t.day) AS 人数
+  FROM public.place_search_total_usage t ORDER BY t.day DESC LIMIT 7;
+```
+
+> 全体の回数は `place_search_total_usage`（誰にも紐づかない表）で数えています。
+> 人ごとの `place_search_usage` は退会で消えるため、合計を全体の上限に使うと、
+> 登録 → 使う → 退会 を繰り返すだけで上限を回避できてしまいます。
 
 Maps SDK は鍵にバンドルID制限がかかっているため、
 漏洩しても他所から使われることはありません。予算アラートでの監視で足ります。

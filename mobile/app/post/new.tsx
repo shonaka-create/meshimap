@@ -20,7 +20,7 @@ import {
   type Genre, type PriceRange,
 } from '../../src/theme'
 import { nearestArea, PREFECTURE_BY_ID } from '../../src/lib/regions'
-import { searchPlaces, type PlaceHit } from '../../src/lib/placeSearch'
+import { searchPlaces, resolveStoreLocation, type PlaceHit } from '../../src/lib/placeSearch'
 import {
   anyProhibitedContent, isProhibitedContentError, PROHIBITED_CONTENT_MESSAGE,
 } from '../../src/lib/moderation'
@@ -156,22 +156,60 @@ export default function NewPost() {
    * それまでは「現在地」か「地図をタップ」しか無かった。家に帰ってから
    * 昼の店を投稿する人にとっては、地図を指でたぐって探すしかない状態だった。
    *
-   * ★ 費用の出ない経路だけを使う（lib/placeSearch.ts）。
-   *   内蔵のエリアデータと、端末の地理コーダ。Places API は使わない。
+   * 店名でも引ける（lib/placeSearch.ts）。探し先は
+   * 「過去の投稿の店名 → 店名の候補(Places) → 内蔵エリア → 端末の地理コーダ」。
+   * 費用の出る Places はサーバー経由で、1日の上限もサーバーが持っている。
    */
   const [placeQuery, setPlaceQuery] = useState('')
   const [placeResults, setPlaceResults] = useState<PlaceHit[]>([])
   const [placeSearching, setPlaceSearching] = useState(false)
   const [placeSearched, setPlaceSearched] = useState(false)
+  /** 店名の検索が今日の上限に達した。過去データと地名では引けている */
+  const [placeCapped, setPlaceCapped] = useState(false)
+  /** 押された候補の座標を取りに行っている最中。二度押しを防ぐ */
+  const [resolvingPlace, setResolvingPlace] = useState<string | null>(null)
 
   /**
    * 地図が動かせる状態か。
    * iOS の animateToRegion は、地図が組み上がる前に呼んでも
    * 黙って捨てられる。検索結果を押した直後がちょうどその窓に当たる。
    */
+  /**
+   * 候補を選んでいる最中か。
+   * 座標を取りに行っている間に別の候補を押させないための鍵で、
+   * 描画を挟まずに読めるよう state ではなく ref で持つ（choosePlace 参照）。
+   */
+  const choosingPlace = useRef(false)
+
+  /**
+   * 地図をいま開いているか。
+   *
+   * ★ 座標の取得を待っている間に「地図で調整」を押されることがある。
+   *   choosePlace は非同期なので、閉じていた頃の showMap を掴んだままになり、
+   *   取得が終わってもカメラを動かさずに帰ってしまう（選んだ店が画面の外に残る）。
+   *   待ったあとは、こちらの最新の値で判断する。
+   */
+  const showMapRef = useRef(false)
+
+  /**
+   * この画面がまだ出ているか。
+   *
+   * ★ 座標の取得を待っている間に閉じられることがある。
+   *   そのまま続けると、次の画面の上に
+   *   「店名は入れておきました」のアラートが出る。
+   *   待ったあとは必ずこれを見て、閉じられていたら何もせずに帰る。
+   */
+  const alive = useRef(true)
+
   const mapReady = useRef(false)
   /** 地図が準備できる前に決まった行き先。準備できた瞬間に動かす */
   const pendingRegion = useRef<{ latitude: number; longitude: number } | null>(null)
+
+  // 地図の開閉を ref に写す。非同期の途中で最新の状態を見るため（showMapRef 参照）
+  useEffect(() => { showMapRef.current = showMap }, [showMap])
+
+  // 閉じられたことを覚えておく。閉じたあとに状態を触らないため（alive 参照）
+  useEffect(() => () => { alive.current = false }, [])
 
   /* ── 初期位置は現在地に寄せる ────────────────────── */
   useEffect(() => {
@@ -255,39 +293,98 @@ export default function NewPost() {
 
     setPlaceSearching(true)
     try {
-      setPlaceResults(await searchPlaces(q))
+      // 現在地を渡すと、同名のチェーン店のうち近いものが上に出る
+      const { hits, capped } = await searchPlaces(q, coords ?? null)
+      setPlaceResults(hits)
+      setPlaceCapped(capped)
       setPlaceSearched(true)
     } finally {
       setPlaceSearching(false)
     }
-  }, [placeQuery])
+  }, [placeQuery, coords])
 
   /** 検索結果を選ぶ。ピンを置いて、そのまま地図で確かめられるようにする */
-  const choosePlace = useCallback((hit: PlaceHit) => {
-    const next = { latitude: hit.latitude, longitude: hit.longitude }
-    setPin(next)
-    setPlaceResults([])
-    setPlaceSearched(false)
-    setPlaceQuery('')
+  const choosePlace = useCallback(async (hit: PlaceHit) => {
+    // ★ 座標を取りに行っている間、次の選択を受け付けないこと。
+    //   受け付けると、あとから押した店を決めた後に、先に押した店の
+    //   応答が返ってきて店名とピンを上書きする（選んだ店と違う場所が入る）。
+    //   同じ候補の連打も、そのぶん有料の呼び出しが増える。
+    //   state ではなく ref で見るのは、連打が同じ描画の中で起きるため。
+    if (choosingPlace.current) return
+    choosingPlace.current = true
 
-    // ★ 検索で寄せた場所は、店そのものではなく「その街」であることが多い。
-    //   置きっぱなしにさせず、必ず地図を開いて微調整させる。
-    if (!showMap) {
-      // まだ開いていない。マウント時の initialRegion がこのピンを使う
-      setShowMap(true)
-      return
+    try {
+      // 店名の候補（Places）は、押されるまで座標を持っていない。
+      // 選ばれた1件についてだけ取りに行く（候補全件ぶん取ると課金が増える）。
+      let next: { latitude: number; longitude: number } | null =
+        hit.latitude !== null && hit.longitude !== null
+          ? { latitude: hit.latitude, longitude: hit.longitude }
+          : null
+
+      if (!next && hit.placeId) {
+        setResolvingPlace(hit.placeId)
+        try {
+          next = await resolveStoreLocation(hit.placeId)
+        } finally {
+          setResolvingPlace(null)
+        }
+
+        // ★ 待っている間に閉じられていたら、ここで帰ること。
+        //   続けると、次の画面の上にこの画面のアラートが出る。
+        if (!alive.current) return
+      }
+
+      if (!next) {
+        // ★ 前のピンを必ず外すこと。
+        //   店名だけが新しい店に変わって座標が前のまま（現在地や別の店）だと、
+        //   地図を触らずに「選んだ店の名前＋無関係な場所」で投稿できてしまう。
+        //   外せば canSubmit が成立しないので、置き直すまで投稿は通らない。
+        //
+        // ★ 投稿そのものは止めない。店名は入れておいて、位置だけ地図で決めてもらう。
+        if (hit.isStore) setLocationName(hit.name)
+        setPin(null)
+        pendingRegion.current = null
+        setShowMap(true)
+        Alert.alert(
+          '場所を取得できませんでした',
+          '店名は入れておきました。地図をタップして位置を指定してください。'
+        )
+        return
+      }
+
+      // 店を選んだときは、店名の欄も埋める。ここで入れておけば、
+      // 同じ名前をもう一度打たせずに済む（あとから直せる）。
+      if (hit.isStore) setLocationName(hit.name)
+
+      setPin(next)
+      setPlaceResults([])
+      setPlaceSearched(false)
+      setPlaceQuery('')
+
+      // ★ 検索で寄せた場所は、店そのものではなく「その街」であることが多い。
+      //   置きっぱなしにさせず、必ず地図を開いて微調整させる。
+      //   待っている間に開かれていることがあるので、ref の最新の値で見る。
+      if (!showMapRef.current) {
+        // まだ開いていない。マウント時の initialRegion がこのピンを使う
+        setShowMap(true)
+        return
+      }
+
+      if (mapReady.current) {
+        moveCamera(mapRef, next)
+        return
+      }
+
+      // ★ 開いてはいるが、まだ組み上がっていない。
+      //   この状態で animateToRegion を呼んでも iOS では黙って捨てられ、
+      //   ピンだけ動いて地図が前の場所に取り残される。
+      //   行き先を持っておいて、onMapReady で動かす。
+      pendingRegion.current = next
+    } finally {
+      // 上の return のどれを通っても必ず外す。外し忘れると、
+      // 以後どの候補を押しても何も起きない画面になる。
+      choosingPlace.current = false
     }
-
-    if (mapReady.current) {
-      moveCamera(mapRef, next)
-      return
-    }
-
-    // ★ 開いてはいるが、まだ組み上がっていない。
-    //   この状態で animateToRegion を呼んでも iOS では黙って捨てられ、
-    //   ピンだけ動いて地図が前の場所に取り残される。
-    //   行き先を持っておいて、onMapReady で動かす。
-    pendingRegion.current = next
   }, [showMap])
 
   /** 地図が組み上がった。保留していた行き先があれば動かす */
@@ -305,6 +402,11 @@ export default function NewPost() {
   /* ── 投稿 ───────────────────────────────────── */
   const submit = useCallback(async () => {
     if (!user || !pin || images.length === 0 || rating === 0 || !locationName.trim()) return
+
+    // ★ ボタンの無効化だけに頼らないこと。
+    //   押した瞬間と、この関数が走る瞬間の間にも選択は進む。
+    //   取得中の投稿は、選ぶ前の場所で保存されるので必ずここで止める。
+    if (choosingPlace.current) return
 
     /* ── 不適切な表現の確認（Guideline 1.2）─────────────────
      * ★ 写真を1枚も上げる前に見る。
@@ -486,8 +588,12 @@ export default function NewPost() {
     ? PREFECTURE_BY_ID[areaPreview.area.prefId]?.name ?? null
     : null
 
+  // ★ 店の座標を取りに行っている間は投稿させないこと。
+  //   押せてしまうと、取得が終わる前の（＝選ぶ前の）店名と座標で保存される。
+  //   投稿の中身が、画面に出ている選択と食い違う形になる。
   const canSubmit =
-    images.length > 0 && rating > 0 && !!locationName.trim() && !!pin && !uploading
+    images.length > 0 && rating > 0 && !!locationName.trim() && !!pin &&
+    !uploading && resolvingPlace === null
 
   return (
     <KeyboardAvoidingView
@@ -663,17 +769,18 @@ export default function NewPost() {
           </View>
 
           {/* ── 言葉で探す ─────────────────────────
-            * 駅名・地名・住所で寄せられる。店名では引けないことが
-            * あるので、そのときは近くの駅名で寄せてから地図で詰める。
-            * 内蔵データと端末の地理コーダだけを使うので費用は出ない。 */}
+            * 店名でも駅名・地名・住所でも引ける。
+            * 店を選ぶと、店名の欄とピンの両方が埋まる。 */}
           <View style={{ gap: space.sm }}>
             <Field
               value={placeQuery}
               onChangeText={(v) => {
                 setPlaceQuery(v)
-                if (!v.trim()) { setPlaceResults([]); setPlaceSearched(false) }
+                if (!v.trim()) {
+                  setPlaceResults([]); setPlaceSearched(false); setPlaceCapped(false)
+                }
               }}
-              placeholder="駅名・地名・住所で探す（例: 清澄白河）"
+              placeholder="店名・駅名・地名で探す（例: 用心棒）"
               returnKeyType="search"
               onSubmitEditing={runPlaceSearch}
               autoCapitalize="none"
@@ -695,8 +802,12 @@ export default function NewPost() {
               <View style={[styles.results, { borderColor: colors.border, backgroundColor: colors.surface }]}>
                 {placeResults.map((hit, i) => (
                   <Pressable
-                    key={`${hit.source}-${hit.name}-${hit.latitude}-${hit.longitude}`}
+                    // 座標の無い候補（店名）は緯度経度で区別できないので placeId も混ぜる
+                    key={`${hit.source}-${hit.placeId ?? ''}-${hit.name}-${hit.latitude}-${hit.longitude}`}
                     onPress={() => choosePlace(hit)}
+                    // 取りに行っている間は、ほかの候補も押せなくする。
+                    // 押せてしまうと、先に押した店の応答があとから上書きする。
+                    disabled={resolvingPlace !== null}
                     style={({ pressed }) => [
                       styles.resultRow,
                       {
@@ -708,7 +819,13 @@ export default function NewPost() {
                     ]}
                   >
                     <Ionicons
-                      name={hit.source === 'local' ? 'navigate-circle-outline' : 'location-outline'}
+                      name={
+                        hit.isStore
+                          ? 'restaurant-outline'
+                          : hit.source === 'local'
+                            ? 'navigate-circle-outline'
+                            : 'location-outline'
+                      }
                       size={18}
                       color={colors.geo}
                     />
@@ -718,6 +835,9 @@ export default function NewPost() {
                         <Txt variant="small" tone="faint" numberOfLines={1}>{hit.detail}</Txt>
                       )}
                     </View>
+                    {resolvingPlace === hit.placeId && !!hit.placeId && (
+                      <ActivityIndicator size="small" color={colors.textFaint} />
+                    )}
                   </Pressable>
                 ))}
               </View>
@@ -725,7 +845,15 @@ export default function NewPost() {
 
             {placeSearched && placeResults.length === 0 && !placeSearching && (
               <Txt variant="small" tone="muted">
-                見つかりませんでした。お店の名前ではなく、最寄り駅や地名で試してみてください。
+                見つかりませんでした。店名の一部か、最寄り駅や地名で試してみてください。
+              </Txt>
+            )}
+
+            {/* 上限に達した日でも、過去にこのアプリへ登録された店と
+                地名では引けている。何が起きているかだけ伝える。 */}
+            {placeCapped && !placeSearching && (
+              <Txt variant="small" tone="muted">
+                今日は店名の検索が上限に達しました。これまでに登録された店と、駅名・地名では探せます。
               </Txt>
             )}
           </View>

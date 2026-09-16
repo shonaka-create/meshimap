@@ -90,7 +90,18 @@ WITH checks (ord, migration, kind, label, present) AS (
         to_regprocedure('public.post_counts_by_region(text,text,text)') IS NULL),
     -- ★ 0002 の2引数版はフォローの絞り込みが無い。残っていたら 0020 が未適用。
     (29, '0020 地域の代表写真/人ごとの地図', '関数', '旧 post_counts_by_region(text,text) が削除済みか',
-        to_regprocedure('public.post_counts_by_region(text,text)') IS NULL)
+        to_regprocedure('public.post_counts_by_region(text,text)') IS NULL),
+    (30, '0021 店名で場所を探す', '表', 'place_search_usage',
+        EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='place_search_usage')),
+    (31, '0021 店名で場所を探す', '関数', 'known_places(text,int)',
+        to_regprocedure('public.known_places(text,integer)') IS NOT NULL),
+    (32, '0021 店名で場所を探す', '関数', 'consume_place_search()',
+        to_regprocedure('public.consume_place_search()') IS NOT NULL),
+    -- ★ これが無いと、全体の上限が退会で巻き戻る（0021 のコメント参照）
+    (33, '0021 店名で場所を探す', '表', 'place_search_total_usage',
+        EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='place_search_total_usage'))
 )
 SELECT
   migration        AS "移行",

@@ -37,7 +37,22 @@ const PUBLIC_PAGES = new Set([
  *   ここを閉じるとアプリの都道府県判定が内蔵データだけになる。
  *   未ログインには 401 を返すので、開けておいて危険はない。
  */
-const PUBLIC_PREFIXES = ['/api/geocode']
+const PUBLIC_PREFIXES = [
+  '/api/geocode',
+  /**
+   * 投稿するときの店名検索（/api/places/search・/api/places/detail）。
+   *
+   * ★ ここに足し忘れないこと。
+   *   本番は PUBLIC_SITE_ONLY=1 なので、足さないと 404 で閉じられ、
+   *   鍵も移行も正しいのに「店名を打っても候補が出ない」状態になる。
+   *   原因がアプリ側に見えるので、いちばん見つけにくい壊れ方をする。
+   *
+   *   未ログインには 401 を返し、呼び出し回数にはサーバー側の上限
+   *   （移行0021 の consume_place_search）が掛かっているので、
+   *   開けておいて請求が膨らむことはない。
+   */
+  '/api/places',
+]
 
 function isAllowed(pathname: string): boolean {
   if (PUBLIC_PAGES.has(pathname)) return true
